@@ -1,0 +1,20 @@
+{
+  "name": "iw-indexer",
+  "version": "0.1.0",
+  "description": "A wallet's coins, prices and transfers from your own Ethereum node. No Alchemy, no API keys.",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "start": "node src/main.ts",
+    "check": "tsc --noEmit",
+    "test": "node test/compare.ts"
+  },
+  "dependencies": {
+    "viem": "^2.57.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.9.3"
+  }
+}
