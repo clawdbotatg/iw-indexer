@@ -91,8 +91,10 @@ export function portfolio(c: ChainCfg, d: Db) {
       held.map(async ([t, bal]): Promise<Asset | null> => {
         const m = t === "native" ? { ...c.native, decimals: 18 } : info.get(t);
         if (!m) return null;
-        const p = await price(t);
+        let p = await price(t);
         const formatted = formatUnits(bal, m.decimals);
+        // worth more than its pool holds: the pool couldn't pay it, so no price (Alchemy has none for such coins)
+        if (p !== null && Number(formatted) * p > price.depth(t)) p = null;
         return {
           chainId: c.id,
           asset: t === "native" ? ETH : getAddress(t),

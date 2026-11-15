@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { createPublicClient, custom, type PublicClient } from "viem";
+import { createPublicClient, custom, decodeFunctionResult, encodeFunctionData, parseAbi, type PublicClient } from "viem";
 
 /**
  * The networks this indexer reads: every one with an RPC_URL_<chainId> (your node). data/chains.json says what's on
@@ -15,6 +15,7 @@ export type ChainCfg = {
   wrapped: `0x${string}` | null;
   uniV3Factory: `0x${string}` | null;
   v2Factories?: `0x${string}`[]; // Uniswap v2 and its copies (getPair), for prices
+  gasMulticall?: `0x${string}`; // Uniswap's multicall, which caps each call's gas (token reads)
   tokens: Tok[];
   rpc: string;
   client: PublicClient;
@@ -117,10 +118,54 @@ export function multicall(c: ChainCfg, contracts: readonly any[], kind: Kind): P
 // out of a gas-burner's batch); a pool read never
 const AGAIN: Record<Kind, [number, number][]> = { token: [[50, 5000], [10, 300], [1, 40]], probe: [[50, 5000]], pool: [] };
 
+// Uniswap's multicall gives each call its own gas: a spam token that burns its gas takes only its own read down. A
+// token read needs well under 150k; a vault's price more. Each request stays under 45M gas in all (geth's default cap
+// for eth_call is 50M)
+const ugas = parseAbi([
+  "function multicall((address target, uint256 gasLimit, bytes callData)[] calls) view returns (uint256 blockNumber, (bool success, uint256 gasUsed, bytes returnData)[] returnData)",
+]);
+const GAS: Record<Kind, number> = { token: 150_000, probe: 1_000_000, pool: 0 };
+async function capped(c: ChainCfg, cs: readonly any[], gas: number): Promise<Res[]> {
+  const per = Math.floor(45_000_000 / gas);
+  const parts: Promise<Res[]>[] = [];
+  for (let i = 0; i < cs.length; i += per) {
+    const part = cs.slice(i, i + per);
+    const data = encodeFunctionData({
+      abi: ugas,
+      functionName: "multicall",
+      args: [part.map(x => ({ target: x.address, gasLimit: BigInt(gas), callData: encodeFunctionData({ abi: x.abi, functionName: x.functionName, args: x.args }) }))],
+    });
+    parts.push(
+      c.client.call({ to: c.gasMulticall!, data, gas: 50_000_000n }).then(r => {
+        const [, out] = decodeFunctionResult({ abi: ugas, functionName: "multicall", data: r.data! }) as any;
+        return part.map((x, j): Res => {
+          const o = out[j];
+          if (!o.success || o.returnData === "0x") return { status: "failure" };
+          try {
+            return { status: "success", result: decodeFunctionResult({ abi: x.abi, functionName: x.functionName, data: o.returnData }) };
+          } catch {
+            return { status: "failure" };
+          }
+        });
+      }),
+    );
+  }
+  return (await Promise.all(parts)).flat();
+}
+
 async function flush(c: ChainCfg, k: string, kind: Kind) {
   const q = queues.get(k)!;
   queues.delete(k);
   if (process.env.DEBUG_FLUSH) console.log("flush", k, q.calls.length);
+  if (c.gasMulticall && GAS[kind]) {
+    try {
+      const out = await capped(c, q.calls, GAS[kind]);
+      for (const w of q.waiting) w.ok(out.slice(w.from, w.from + w.n));
+    } catch (e) {
+      for (const w of q.waiting) w.no(e);
+    }
+    return;
+  }
   const run = (cs: readonly any[]) => c.client.multicall({ multicallAddress: MULTICALL3, allowFailure: true, batchSize: 200_000, contracts: cs as any[] }) as Promise<Res[]>;
   try {
     const out = await run(q.calls);

@@ -6,7 +6,7 @@ import { multicall, type ChainCfg } from "./chains.ts";
  *
  * 1. Pools: the coin against USDC, USDT, DAI (each counted as $1) or the network's wrapped coin (its own price), in
  *    Uniswap v3 (fees 0.01%, 0.05%, 0.3%, 1%) and the v2-style DEXes in data/chains.json (Uniswap v2, SushiSwap...).
- *    The pool holding the most dollars of the other side wins, if that's at least MIN_DEPTH ($10,000): a coin with no
+ *    The pool holding the most dollars of the other side wins, if that's at least MIN_DEPTH ($50,000): a coin with no
  *    real pool has no price (the wallet treats it as spam, as it does today). A v3 price is the pool's 30-minute
  *    average (observe), so one block can't fake it; a v2 price is its reserves now, from a pool traded in the last 30
  *    days.
@@ -15,7 +15,7 @@ import { multicall, type ChainCfg } from "./chains.ts";
  *    getPricePerFullShare).
  * Kept for a minute.
  */
-const MIN_DEPTH = Number(process.env.MIN_DEPTH_USD || 10_000);
+const MIN_DEPTH = Number(process.env.MIN_DEPTH_USD || 50_000);
 // how many coins are priced at once: all of a wallet's, by default. Their reads are merged into a few requests
 // (chains.ts multicall), and the connection to the node keeps its own pace (RPC_RPS)
 const LIMIT = Number(process.env.PRICE_CONCURRENCY || 100_000);
@@ -40,6 +40,9 @@ const ZERO = "0x0000000000000000000000000000000000000000";
 const STABLES = /^(USDT|USDT0|USD₮0|DAI)$/;
 
 const cache = new Map<string, { at: number; p: Promise<number | null>; none?: boolean }>();
+// how many dollars the deepest pool holds, per coin priced from a pool (a holding worth more than that can't be sold
+// for it: spam with a small real pool, airdropped in the millions, priced 22 test wallets at $430k)
+const depths = new Map<string, number>();
 type Pool = { kind: "v3" | "v2"; addr: string; quote: string };
 
 export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | null>) {
@@ -147,7 +150,10 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
     if (t === usdc) return 1;
     if (t === "native") return wrapped ? price(wrapped, true) : null;
     const pool = await pools(t);
-    if (pool) return pool.p;
+    if (pool) {
+      depths.set(`${c.id}:${t}`, pool.usd);
+      return pool.p;
+    }
     return through(t);
   }
 
@@ -170,16 +176,31 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
     const hit = cache.get(k);
     // a price for a minute; no price (no pool: spam, mostly) for an hour, so a big wallet's spam isn't looked up again
     // on every ask
-    if (hit && Date.now() - hit.at < (hit.none ? 3600_000 : 60_000)) return hit.p;
+    if (hit && Date.now() - hit.at < (hit.none ? 3600_000 : t.toLowerCase() === wrapped ? 300_000 : 60_000)) return hit.p;
     // asked from inside another coin's price (its quote coin, what an aToken holds) skips the line: that one already
     // has a place, and waiting again could wait forever
     // 20 s at most (two vaults that point at each other would wait on each other for good)
-    const timed = () => Promise.race([compute(t), new Promise<null>(r => setTimeout(() => r(null), 20_000))]);
-    const p = (inner ? timed() : slot(timed)).catch(() => null);
-    const entry: { at: number; p: Promise<number | null>; none?: boolean } = { at: Date.now(), p };
-    p.then(v => v === null && (entry.none = true));
+    // too slow (a wallet with 10,000 coins asks for all their pools at once) or failed: no price this time, and not
+    // kept, so the next ask tries again (kept, it hid mainnet ETH's price for an hour)
+    const LATE = Symbol();
+    const timed = () => Promise.race([compute(t), new Promise<typeof LATE>(r => setTimeout(() => r(LATE), 60_000))]);
+    const entry: { at: number; p: Promise<number | null>; none?: boolean } = { at: Date.now(), p: null as any };
+    const forget = () => (cache.get(k) === entry && cache.delete(k), null);
+    entry.p = (inner ? timed() : slot(timed)).then(v => (v === LATE ? forget() : (v === null && (entry.none = true), v)), forget);
     cache.set(k, entry);
-    return p;
+    return entry.p;
   }
+  // the network's wrapped coin prices its own coin and every coin quoted in it: read again every 45 s on its own (and kept 5 minutes), so it is
+  // never stuck behind a big wallet's thousands of pool reads
+  if (wrapped) {
+    // a new price replaces the old one only once it's read: asks in between get the last one
+    const warm = () =>
+      compute(wrapped).then(v => v !== null && cache.set(`${c.id}:${wrapped}`, { at: Date.now(), p: Promise.resolve(v) }), () => null);
+    warm();
+    setInterval(warm, 45_000).unref();
+  }
+
+  /** The dollars in the coin's pool, or Infinity when its price doesn't come from one pool (USDC, an aToken...). */
+  price.depth = (t: string) => depths.get(`${c.id}:${t.toLowerCase()}`) ?? Infinity;
   return price;
 }

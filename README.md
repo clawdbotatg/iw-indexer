@@ -21,7 +21,7 @@ One `RPC_URL_<chainId>` per network you want: your node for that network. It lis
 | `DB` | the SQLite file (`indexer.db`) |
 | `FROM_BLOCK_<chainId>` | how far back the scan goes (0) |
 | `MAX_WALLETS` | wallets it will watch (100) |
-| `MIN_DEPTH_USD` | the least a pool must hold for its price to count (10000) |
+| `MIN_DEPTH_USD` | the least a pool must hold for its price to count (50000) |
 | `RPC_RPS`, `RPC_CONCURRENCY` | how hard it may ask your node: requests a second (5) and at once (4) per network. Gentle by default, for a hosted node with limits; your own node can take far more |
 | `VERBOSE` | log the scan |
 
@@ -43,7 +43,7 @@ Instant Wallet: set `INDEXER_URL=http://127.0.0.1:4100` (its `run-local.sh` does
 - **Names, symbols, decimals:** asked from each token once, kept in the database.
 - **Prices:** from the chain. The coin's pool against USDC, USDT, DAI or the network's wrapped coin, in Uniswap v3
   and the v2-style DEXes (Uniswap v2, SushiSwap). The pool holding the most dollars of the other side wins, if
-  that's at least $10,000. A v3 price is the pool's 30-minute average, so one block can't fake it; a v2 pool must
+  that's at least $50,000. A v3 price is the pool's 30-minute average, so one block can't fake it; a v2 pool must
   have traded in the last 30 days. No pool: an Aave token or a vault share is priced through what it holds. Else no
   price (the wallet treats such coins as spam). USDC counts as $1.
 - **Gentle on the node:** reads merge into a few large Multicall3 calls, at a set pace (`RPC_RPS`). A wallet with
