@@ -1,0 +1,460 @@
+{
+ "made": "2026-11-15",
+ "wallets": [
+  {
+   "address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
+   "label": "vitalik.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0xb8c2C29ee19D8307cb7255e1Cd9CbDE883A267d5",
+   "label": "nick.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x983110309620D911731Ac0932219af06091b6744",
+   "label": "brantly.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x34aA3F359A9D614239015126635CE7732c18fDF3",
+   "label": "austingriffith.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x648aA14e4424e0825A5cE739C8C68610e143FB79",
+   "label": "sassal.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x50EC05ADe8280758E2077fcBC08D878D4aef79C3",
+   "label": "hayden.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x2E21f5d32841cf8C7da805185A041400bF15f21A",
+   "label": "stani.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x5555763613a12D8F3e73be831DFf8598089d3dCa",
+   "label": "ricmoo.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9",
+   "label": "jessepollak.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0xD64aA5F70F228dC486b70D83d9b948fae3Cc698c",
+   "label": "dwr.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x0916C04994849c676ab2667Ce5bbDF7CcC94310a",
+   "label": "balajis.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x5B93FF82faaF241c15997ea3975419DDDd8362c5",
+   "label": "coopahtroopa.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0xfD22004806A6846EA67ad883356be810F0428793",
+   "label": "punk6529.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0xD387A6E4e84a6C86bd90C158C6028A58CC8Ac459",
+   "label": "pranksy.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x378698D858029F13f9855C42a6F6668E147Ed129",
+   "label": "dcinvestor.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0xe11BFCBDd43745d4Aa6f4f18E24aD24f4623af04",
+   "label": "cdixon.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x2B888954421b424C5D3D9Ce9bB67c9bD47537d12",
+   "label": "lefteris.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x2e8ABfE042886E4938201101A63730D04F160A82",
+   "label": "ryansadams.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x2Cb5Ae51861A4a6E8568b527cAFC3891317Ac94d",
+   "label": "fredwilson.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0xaBF107de3E01c7c257e64E0a18d60A733Aad395d",
+   "label": "beaniemaxi.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0xeEE5Eb24E7A0EA53B75a1b9aD72e7D20562f4283",
+   "label": "tim.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x866B3c4994e1416B7C738B9818b31dC246b95eEE",
+   "label": "jefflau.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x5A384227B65FA093DEC03Ec34e111Db80A040615",
+   "label": "matoken.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x8959092B77f5B2f531E52041623Ae90F8fd13D09",
+   "label": "anthonysassano.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x42f9d5a35ae9aba2300cBA864F2dD8311BC7a429",
+   "label": "tschoerv.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x4D982788c01402C4E0f657E1192d7736084AE5a8",
+   "label": "garypalmerjr.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x5531db3f21A1723e6f4D95F93bC8220c6E9cfFA2",
+   "label": "trent.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x42f9134E9d3Bf7eEE1f8A5Ac2a4328B059E7468c",
+   "label": "kain.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x399e0Ae23663F27181Ebb4e66Ec504b3AAB25541",
+   "label": "superphiz.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x6C73E9148aC9acD1A96d554b6b20905414F8696f",
+   "label": "dannyryan.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x10F5d45854e038071485AC9e402308cF80D2d2fE",
+   "label": "timbeiko.eth",
+   "source": "ens"
+  },
+  {
+   "address": "0x74Dc4d73246475BC4a17b873E28F895fd1bF1481",
+   "label": "trader on 1 (71 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0x422D81709eF92a7c013B8e74d6E3fdcc44d0444b",
+   "label": "trader on 1 (6325 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0xbF6972Ccfc3aca8aaB41f6deF9fd79A45d13d898",
+   "label": "trader on 1 (65 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0x727D4DDE6C7b13161fD2F12a2EeB936eAc3cB026",
+   "label": "trader on 1 (50 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0x1A53dF2d064bbAb713c6Ad5564d6Db408db6737e",
+   "label": "trader on 1 (68 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0x40230488C769DBcA1a6f288B38Fe817f1b3cf202",
+   "label": "trader on 1 (19817 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0xd86c51B7A07BC01056470EC03E4aDAFf5044AB67",
+   "label": "trader on 1 (16722 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0x5388A7f24e86c9c9D855A98C2F5a339AFA6a3acc",
+   "label": "trader on 1 (5897 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0x6A6A01D9c48859317b3D96459cCABf157B836F72",
+   "label": "trader on 1 (68 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0x6aA99B850f71FB9F5D3BC3A9d87791BE13fD64B7",
+   "label": "trader on 1 (477 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0x9A3DAa5c3Acf3212A551b9a8C640F4Bb08585768",
+   "label": "trader on 1 (18389 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0xca7f4fE33822C8D259c230b3C544D6C80A04d3dD",
+   "label": "trader on 1 (3248 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0x25CAEE0b6867831C974719e3C7893DD620d9F102",
+   "label": "trader on 1 (17674 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0xBA03076f3F19948325513B48FC66e640699FB33c",
+   "label": "trader on 1 (3606 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0xBA020D1428110c72ad39EE71be37026e0A97Ffa8",
+   "label": "trader on 1 (3614 txs)",
+   "source": "router:1"
+  },
+  {
+   "address": "0x87333E15b593E13D22ceb38046F3DEe0B964Ef37",
+   "label": "trader on 10 (4986 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0xFdEC89f67B3BAa276D3D59628C8041BBbE3EfBeD",
+   "label": "trader on 10 (3866 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0x07aD4C34e39cf37af0A82fb2eB40f3A7b3713B9A",
+   "label": "trader on 10 (51 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0xd4313Fab26f6b8A972c68900d73A9E6258247819",
+   "label": "trader on 10 (3916 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0x93614117cC5655873967783b184C93cd7AD74bB3",
+   "label": "trader on 10 (870 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0x20146F982Bb4af4C495c9356B8102c90f6B623A7",
+   "label": "trader on 10 (887 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0x3bb123E6A81B70c04655f0cA9859747e614DB1bf",
+   "label": "trader on 10 (265 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0x5B60EB2f0D9810D6a6b99AdCeE3d42e8aE364F58",
+   "label": "trader on 10 (338 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0xC92BfD8d62756412ef0486590Dc0B5da52cF9329",
+   "label": "trader on 10 (54 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0xAa536780DF285B1590a6ec11e8123e252180f873",
+   "label": "trader on 10 (456 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0xf7d47C1f5008F2Cc66C3497Bb99283030C9079a1",
+   "label": "trader on 10 (92 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0xe44799Ef334Df157e0F8e2855E5EbeBdBc02b299",
+   "label": "trader on 10 (591 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0x9D635E9AF3307562724eF789B1Ab57Cbf468204E",
+   "label": "trader on 10 (4543 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0x11bFbFA2DC1EA475F80c7737560F2b413Efc0F65",
+   "label": "trader on 10 (567 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0x2894C816bfB8fE62D8A09ba3B32d6dD411bbeC66",
+   "label": "trader on 10 (1636 txs)",
+   "source": "router:10"
+  },
+  {
+   "address": "0x0A595AE7cF6603D969209Cd7d6CF9710fE4d057B",
+   "label": "trader on 8453 (95 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0xa5818E32E1DFe2E58CCFA70145dF30C00324CD30",
+   "label": "trader on 8453 (150 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0x61fc5Bc0403E334D27Bb6d46256dEf016a7Ce0A7",
+   "label": "trader on 8453 (114 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0xfC3F5d2F8CEdeD9c57De5182e88D092305bd7f7e",
+   "label": "trader on 8453 (389 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0x0BF00D7023C4fd8f88A157c44b6089cdb0F17183",
+   "label": "trader on 8453 (115 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0xb9143B8e8cD4F327e1f53Da2d06f06eee51f04c1",
+   "label": "trader on 8453 (115 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0x4229C275F935d461C4b94919D9fC229D145F5aDE",
+   "label": "trader on 8453 (150 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0x82614b7A4dcc9ee2c116D0254f6ac364E15Ada4E",
+   "label": "trader on 8453 (115 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0xD9b46F8D8F5Eb901c2c157331375748357632732",
+   "label": "trader on 8453 (12887 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0x3D63c340fA1735637e962e3b0B7D0F7cF1F722a1",
+   "label": "trader on 8453 (15913 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0xd4446112700877b24Fc90Bb4c5301329626E4869",
+   "label": "trader on 8453 (115 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0x0FB45B00706Dc05b01147B69bD0117401fb24F6D",
+   "label": "trader on 8453 (146 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0xC0918a58B176FcA0D5a9011b2EfaDd218a558838",
+   "label": "trader on 8453 (115 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0x696f9d61a95e88324Ea5Bc7366073554E166d762",
+   "label": "trader on 8453 (285 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0x8615830b109489989e96BDAB3d770A9088b5dBcc",
+   "label": "trader on 8453 (112 txs)",
+   "source": "router:8453"
+  },
+  {
+   "address": "0xccBB4869BD40e6958a550A12c08CE7312670BA3D",
+   "label": "trader on 42161 (11488 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0x1C3a068430F8fE592703D07B9fd063d47BDe8ABa",
+   "label": "trader on 42161 (7164 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0x2ee7A685bedF18Bb2667E4cd7848595e92d68587",
+   "label": "trader on 42161 (627 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0x9353B7886592D214e1dE26205d2FA359028a526C",
+   "label": "trader on 42161 (174 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0x9c3967dC0E688554a8F72b360203769108202e6F",
+   "label": "trader on 42161 (9201 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0x50Dd9Ba784F9e3658f7BaDE66C2A9e19aD3dDE36",
+   "label": "trader on 42161 (4906 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0x7A68a32cc17669c4367e92Dfe6541d102Ef048e7",
+   "label": "trader on 42161 (427 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0x4e0Fd3fACedda6b81AfF1Fc38DC7e86d04b939b3",
+   "label": "trader on 42161 (2929 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0xA07D83334758Af046DbCEe6991E341C0E061d121",
+   "label": "trader on 42161 (2093 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0x56631207aD042031fDD5D457F13bFda523ff1Ca6",
+   "label": "trader on 42161 (166 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0x47186007F802550606042a200741Ce1492F66096",
+   "label": "trader on 42161 (1366 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0xb1A4A52bf296Bb2f0Ca995f6b898B88d4c4EB4E3",
+   "label": "trader on 42161 (560 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0x2dD5e15c19A1e1c947Ff901aB256FB10e98E39F1",
+   "label": "trader on 42161 (999 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0x7BA945695f37a8e9D6CF81325Aa8D28b8ba56063",
+   "label": "trader on 42161 (364 txs)",
+   "source": "router:42161"
+  },
+  {
+   "address": "0xd9C6Ff59d03441503f7E4D5a67eCF146BBEcE743",
+   "label": "trader on 42161 (74 txs)",
+   "source": "router:42161"
+  }
+ ]
+}

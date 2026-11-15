@@ -45,17 +45,31 @@ Instant Wallet: set `INDEXER_URL=http://127.0.0.1:4100` (its `run-local.sh` does
   pool's 30-minute average, so one block can't fake it. No pool like that: no price (the wallet treats such coins
   as spam). USDC counts as $1.
 
-## Not yet
+## Next (once the test suite runs clean)
 
-- NFTs, positions (Aave, Morpho: that's `iw-positions`), Uniswap v4 pools, Chainlink feeds.
-- Prices on networks without Uniswap v3 here (Gnosis, Sonic, HyperEVM, Plasma, Robinhood): USDC only, for now.
-- The network's own coin moving in from a contract (needs traces); `SafeReceived` will cover Safes.
+1. **Activity**: the rows Instant Wallet's Activity shows, from the stored transfers and the Safe's own events,
+   including money in before a Safe is deployed (today that's Alchemy's `getAssetTransfers`).
+2. **NFTs**: ERC-721 and ERC-1155 transfers (the 4-topic `Transfer`, `TransferSingle`, `TransferBatch`), owners
+   checked live, images from the token's own `tokenURI`.
+3. **Prices on networks without Uniswap v3 here** (Gnosis, Sonic, HyperEVM, Plasma, Robinhood): their own DEXes
+   (Balancer, Curve, Shadow, Hyperswap...) or Chainlink feeds. USDC only, for now.
+4. Uniswap v4 pools and Chainlink feeds next to v3, for coins whose deepest pool is there.
+5. The network's own coin moving in from a contract (needs traces); `SafeReceived` covers Safes.
+
+Positions (Aave, Morpho...) are a separate repo: `iw-positions`.
+
+## The test suite
+
+`test/wallets.json`: 92 wallets every change is checked against: 32 well-known people (by ENS name) and 15 active
+traders on each of Ethereum, Base, Arbitrum and Optimism (`node test/find-wallets.ts` makes the list again).
+`node test/suite.ts` asks this indexer and a reference (Instant Wallet's `/api/portfolio`, which reads Alchemy)
+about each one and says, per wallet, which coins differ.
 
 ## Your node
 
 `eth_getLogs` over wide block ranges: reth, erigon and geth all do it. The scan shrinks its range when the node says
 no, and grows it while it says yes. A wallet's history is small, so the scan back takes minutes.
 
-Test against a reference: `node test/compare.ts 0xADDRESS` (it compares with instantwallet.io's numbers).
+One wallet against a reference: `node test/compare.ts 0xADDRESS`.
 
 MIT.

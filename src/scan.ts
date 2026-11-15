@@ -19,7 +19,6 @@ type Log = { address: string; topics: string[]; data: string; blockNumber: strin
 
 export function scanner(c: ChainCfg, d: Db, log = (..._: unknown[]) => {}) {
   const rpc = <T>(method: string, params: unknown[]) => c.client.request({ method: method as any, params: params as any }) as Promise<T>;
-  let span = 100_000n; // blocks per getLogs going back; adapts
   const head = async () => BigInt(await rpc<string>("eth_blockNumber", []));
 
   const keep = (logs: Log[], wallets: Set<string>) => {
@@ -48,22 +47,35 @@ export function scanner(c: ChainCfg, d: Db, log = (..._: unknown[]) => {}) {
     d.q.addWallet.run(c.id, w, Number(h), Number(h) + 1, Number(h), Date.now());
   }
 
-  /** One step back in time for one wallet not done yet. false: nothing left to do. */
+  // per wallet: its block range going back (adapts to what the node takes), and whose turn it is
+  const spans = new Map<string, bigint>();
+  let turn = 0;
+
+  /** One step back in time for one wallet not done yet, each in turn (a slow one doesn't hold up the rest).
+   * false: nothing left to do. */
   async function back(): Promise<boolean> {
     const rows = (d.q.wallets.all() as any[]).filter(r => r.chain === c.id && BigInt(r.low) > c.fromBlock);
     if (!rows.length) return false;
-    const r = rows.sort((a, b) => b.low - a.low)[0]; // the one with the most recent gap first
+    const r = rows[turn++ % rows.length];
+    const span = spans.get(r.wallet) ?? 100_000n;
     const to = BigInt(r.low) - 1n;
     const from = to - span + 1n > c.fromBlock ? to - span + 1n : c.fromBlock;
     try {
       const got = await logs(from, to, [r.wallet]);
       keep(got, new Set([r.wallet]));
       d.q.setLow.run(Number(from), c.id, r.wallet);
-      if (got.length < 2000 && span < 5_000_000n) span *= 2n;
+      if (got.length < 2000 && span < 5_000_000n) spans.set(r.wallet, span * 2n);
       log(c.name, r.wallet.slice(0, 8), "back to", from, got.length, "logs");
     } catch (e: any) {
-      span = span > 100n ? span / 4n : 100n; // the node refused (too many results, range too big): smaller
-      log(c.name, "back: smaller range", span, String(e?.shortMessage || e?.message || e).slice(0, 80));
+      const why = String(e?.shortMessage || e?.message || e).slice(0, 80);
+      if (span > 1n) {
+        spans.set(r.wallet, span > 4n ? span / 4n : 1n); // the node refused (too many results, too big): smaller
+        log(c.name, r.wallet.slice(0, 8), "smaller range", span, why);
+      } else {
+        // one block it can't answer: skipped, said, never stuck on
+        d.q.setLow.run(Number(from), c.id, r.wallet);
+        console.log(`${c.name}: skipped block ${from} for ${r.wallet} (${why})`);
+      }
     }
     return true;
   }
