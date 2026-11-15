@@ -1,5 +1,5 @@
 import { formatUnits, getAddress, hexToString, parseAbi } from "viem";
-import { MULTICALL3, type ChainCfg } from "./chains.ts";
+import { multicall, type ChainCfg } from "./chains.ts";
 import type { Db } from "./db.ts";
 import { pricer } from "./price.ts";
 
@@ -21,50 +21,64 @@ const erc20b = parseAbi(["function symbol() view returns (bytes32)", "function n
 
 export function portfolio(c: ChainCfg, d: Db) {
   const known = new Map(c.tokens.map(t => [t.address.toLowerCase(), t]));
+  const notToken = new Map<string, number>(); // no decimals() when last asked, and when
 
-  /** name, symbol, decimals: the list, the database, else the chain (then kept). null: not a token. */
-  async function meta(t: string): Promise<{ symbol: string; name: string; decimals: number } | null> {
-    t = t.toLowerCase();
+  const cached = (t: string) => {
     const k = known.get(t);
     if (k) return { symbol: k.symbol, name: k.symbol, decimals: k.decimals };
     const row = d.q.token.get(c.id, t) as any;
-    if (row) return row.decimals === null ? null : row;
-    const a = t as `0x${string}`;
-    const [dec, sym, nm] = await c.client.multicall({
-      multicallAddress: MULTICALL3,
-      allowFailure: true,
-      contracts: [
-        { address: a, abi: erc20, functionName: "decimals" },
-        { address: a, abi: erc20, functionName: "symbol" },
-        { address: a, abi: erc20, functionName: "name" },
-      ],
-    });
-    if (dec.status !== "success") {
-      d.q.addToken.run(c.id, t, null, null, null);
-      return null;
+    return row && row.decimals !== null ? (row as { symbol: string; name: string; decimals: number }) : undefined;
+  };
+
+  /** Name, symbol, decimals of many tokens: the list, the database, else the chain, all in one Multicall3 call
+   * (then kept). A token whose decimals() fails isn't kept: asked again after an hour (a busy node fails a read for a
+   * moment, and a coin must never be lost for good over it). */
+  async function metas(ts: string[]) {
+    const ask = ts.filter(t => !cached(t) && !(Date.now() - (notToken.get(t) ?? 0) < 3600_000));
+    if (ask.length) {
+      const r = await multicall(c, ask.flatMap(t => {
+          const a = t as `0x${string}`;
+          return [
+            { address: a, abi: erc20, functionName: "decimals" },
+            { address: a, abi: erc20, functionName: "symbol" },
+            { address: a, abi: erc20, functionName: "name" },
+          ] as const;
+        }),
+        "token",
+      );
+      await Promise.all(
+        ask.map(async (t, i) => {
+          const [dec, sym, nm] = r.slice(i * 3, i * 3 + 3);
+          if (dec.status !== "success") return notToken.set(t, Date.now());
+          const text = async (x: typeof sym, fn: "symbol" | "name") => {
+            if (x.status === "success") return String(x.result);
+            const b = await c.client.readContract({ address: t as `0x${string}`, abi: erc20b, functionName: fn }).catch(() => null);
+            return b ? hexToString(b as `0x${string}`, { size: 32 }).replace(/\0/g, "") : "";
+          };
+          d.q.addToken.run(c.id, t, (await text(sym, "symbol")) || "?", await text(nm, "name"), Number(dec.result));
+        }),
+      );
     }
-    const text = async (r: typeof sym, fn: "symbol" | "name") => {
-      if (r.status === "success") return String(r.result);
-      const b = await c.client.readContract({ address: a, abi: erc20b, functionName: fn }).catch(() => null);
-      return b ? hexToString(b as `0x${string}`, { size: 32 }).replace(/\0/g, "") : "";
-    };
-    const m = { symbol: (await text(sym, "symbol")) || "?", name: await text(nm, "name"), decimals: Number(dec.result) };
-    d.q.addToken.run(c.id, t, m.symbol, m.name, m.decimals);
-    return m;
+    return new Map(ts.map(t => [t, cached(t) ?? null]));
   }
+  const meta = async (t: string) => (await metas([t.toLowerCase()])).get(t.toLowerCase()) ?? null;
   const price = pricer(c, async t => (await meta(t))?.decimals ?? null);
 
-  return async function assets(wallet: string): Promise<Asset[]> {
+  // one read per wallet at a time: asking again while it runs gets the same answer
+  const running = new Map<string, Promise<Asset[]>>();
+  return function assets(wallet: string): Promise<Asset[]> {
+    const k = wallet.toLowerCase();
+    if (!running.has(k)) running.set(k, read(wallet).finally(() => running.delete(k)));
+    return running.get(k)!;
+  };
+
+  async function read(wallet: string): Promise<Asset[]> {
     const w = getAddress(wallet);
     const seen = (d.q.seen.all(c.id, w.toLowerCase()) as any[]).map(r => r.token as string);
     const list = [...new Set([...known.keys(), ...seen])];
     const [native, bals] = await Promise.all([
       c.client.getBalance({ address: w }),
-      c.client.multicall({
-        multicallAddress: MULTICALL3,
-        allowFailure: true,
-        contracts: list.map(t => ({ address: t as `0x${string}`, abi: erc20, functionName: "balanceOf", args: [w] }) as const),
-      }),
+      multicall(c, list.map(t => ({ address: t as `0x${string}`, abi: erc20, functionName: "balanceOf", args: [w] }) as const), "token"),
     ]);
     const held: [string, bigint][] = [];
     if (!c.nativeIsUsdc && native > 0n) held.push(["native", native]);
@@ -72,9 +86,10 @@ export function portfolio(c: ChainCfg, d: Db) {
       const r = bals[i];
       if (r?.status === "success" && (r.result as bigint) > 0n) held.push([t, r.result as bigint]);
     });
+    const info = await metas(held.map(([t]) => t).filter(t => t !== "native")).catch(() => new Map());
     const rows = await Promise.all(
       held.map(async ([t, bal]): Promise<Asset | null> => {
-        const m = t === "native" ? { ...c.native, decimals: 18 } : await meta(t).catch(() => null);
+        const m = t === "native" ? { ...c.native, decimals: 18 } : info.get(t);
         if (!m) return null;
         const p = await price(t);
         const formatted = formatUnits(bal, m.decimals);
@@ -92,5 +107,5 @@ export function portfolio(c: ChainCfg, d: Db) {
       }),
     );
     return rows.filter(Boolean) as Asset[];
-  };
+  }
 }

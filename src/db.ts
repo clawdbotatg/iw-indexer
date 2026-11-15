@@ -20,6 +20,7 @@ export function open(path: string) {
     CREATE INDEX IF NOT EXISTS transfers_src ON transfers (chain, src, block);
     CREATE TABLE IF NOT EXISTS tokens (chain INTEGER, token TEXT, symbol TEXT, name TEXT, decimals INTEGER, PRIMARY KEY (chain, token));
   `);
+  db.exec("DELETE FROM tokens WHERE decimals IS NULL"); // 0.1 kept a failed read as "not a token" for good
   const q = {
     wallet: db.prepare("SELECT * FROM wallets WHERE chain = ? AND wallet = ?"),
     wallets: db.prepare("SELECT * FROM wallets"),

@@ -19,6 +19,11 @@ const LATE_MS = Number(process.env.LATE_MS || 8000);
 const verbose = !!process.env.VERBOSE;
 const log = (...a: unknown[]) => verbose && console.log(new Date().toISOString().slice(11, 19), ...a);
 
+// a failure nobody waited for is logged, never the end of the service
+process.on("unhandledRejection", e => console.error("unhandled:", String((e as any)?.message || e).slice(0, 300)));
+process.on("uncaughtException", e => console.error("uncaught:", String(e?.stack || e).slice(0, 600)));
+process.on("exit", code => console.error("exit", code));
+
 const cs = chains();
 if (!cs.length) {
   console.error("No networks: set RPC_URL_<chainId>=<your node> (RPC_URL_1, RPC_URL_8453, ...). See README.md.");
@@ -27,18 +32,19 @@ if (!cs.length) {
 const d = open(process.env.DB || "indexer.db");
 const per = cs.map(c => ({ c, scan: scanner(c, d, log), assets: portfolio(c, d) }));
 
-// the scan: new blocks every 4 s per chain; back in time whenever there's nothing new
+// the scan: new blocks every 12 s per chain; back in time in between, a step every half second at most
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 for (const p of per) {
   (async () => {
     for (;;) {
       try {
         await p.scan.forward();
         const t = Date.now();
-        while (Date.now() - t < 4000 && (await p.scan.back()));
+        while (Date.now() - t < 12_000) if (await p.scan.back()) await sleep(500); else await sleep(12_000 - (Date.now() - t));
       } catch (e: any) {
         log(p.c.name, "scan:", String(e?.shortMessage || e?.message || e).slice(0, 120));
+        await sleep(12_000);
       }
-      await new Promise(r => setTimeout(r, 1000));
     }
   })();
 }

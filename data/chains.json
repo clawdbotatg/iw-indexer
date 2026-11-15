@@ -110,7 +110,11 @@
    }
   ],
   "wrapped": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-  "uniV3Factory": "0x1F98431c8aD98523631AE4a59f267346ea31F984"
+  "uniV3Factory": "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+  "v2Factories": [
+   "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f",
+   "0xC0AEe478e3658e2610c5F7A4A2E1777cE9e4f2Ac"
+  ]
  },
  "10": {
   "name": "Optimism",
@@ -188,7 +192,10 @@
    }
   ],
   "wrapped": "0x4200000000000000000000000000000000000006",
-  "uniV3Factory": "0x1F98431c8aD98523631AE4a59f267346ea31F984"
+  "uniV3Factory": "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+  "v2Factories": [
+   "0x0c3c1c532F1e39EdF36BE9Fe0bE1410313E074Bf"
+  ]
  },
  "56": {
   "name": "BNB Chain",
@@ -261,7 +268,8 @@
    }
   ],
   "wrapped": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
-  "uniV3Factory": "0xdB1d10011AD0Ff90774D0C6Bb92e5C5c8b4461F7"
+  "uniV3Factory": "0xdB1d10011AD0Ff90774D0C6Bb92e5C5c8b4461F7",
+  "v2Factories": []
  },
  "100": {
   "name": "Gnosis",
@@ -329,7 +337,8 @@
    }
   ],
   "wrapped": "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d",
-  "uniV3Factory": null
+  "uniV3Factory": null,
+  "v2Factories": []
  },
  "137": {
   "name": "Polygon",
@@ -417,7 +426,8 @@
    }
   ],
   "wrapped": "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
-  "uniV3Factory": "0x1F98431c8aD98523631AE4a59f267346ea31F984"
+  "uniV3Factory": "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+  "v2Factories": []
  },
  "146": {
   "name": "Sonic",
@@ -465,7 +475,8 @@
    }
   ],
   "wrapped": "0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38",
-  "uniV3Factory": null
+  "uniV3Factory": null,
+  "v2Factories": []
  },
  "999": {
   "name": "HyperEVM",
@@ -523,7 +534,8 @@
    }
   ],
   "wrapped": "0x5555555555555555555555555555555555555555",
-  "uniV3Factory": null
+  "uniV3Factory": null,
+  "v2Factories": []
  },
  "4663": {
   "name": "Robinhood",
@@ -606,7 +618,8 @@
    }
   ],
   "wrapped": null,
-  "uniV3Factory": null
+  "uniV3Factory": null,
+  "v2Factories": []
  },
  "5042": {
   "name": "Arc",
@@ -639,7 +652,8 @@
    }
   ],
   "wrapped": null,
-  "uniV3Factory": null
+  "uniV3Factory": null,
+  "v2Factories": []
  },
  "8453": {
   "name": "Base",
@@ -737,7 +751,10 @@
    }
   ],
   "wrapped": "0x4200000000000000000000000000000000000006",
-  "uniV3Factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD"
+  "uniV3Factory": "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+  "v2Factories": [
+   "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6"
+  ]
  },
  "9745": {
   "name": "Plasma",
@@ -765,7 +782,8 @@
    }
   ],
   "wrapped": "0x6100E367285b01F48D07953803A2d8dCA5D19873",
-  "uniV3Factory": null
+  "uniV3Factory": null,
+  "v2Factories": []
  },
  "42161": {
   "name": "Arbitrum",
@@ -868,7 +886,11 @@
    }
   ],
   "wrapped": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
-  "uniV3Factory": "0x1F98431c8aD98523631AE4a59f267346ea31F984"
+  "uniV3Factory": "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+  "v2Factories": [
+   "0xf1D7CC64Fb4452F05c498126312eBE29f30Fbcf9",
+   "0xc35DADB65012eC5796536bD9864eD8773aBc74C4"
+  ]
  },
  "42220": {
   "name": "Celo",
@@ -911,7 +933,8 @@
    }
   ],
   "wrapped": "0x471EcE3750Da237f93B8E339c536989b8978a438",
-  "uniV3Factory": "0xAfE208a311B21f13EF87E33A90049fC17A7acDEc"
+  "uniV3Factory": "0xAfE208a311B21f13EF87E33A90049fC17A7acDEc",
+  "v2Factories": []
  },
  "43114": {
   "name": "Avalanche",
@@ -984,6 +1007,7 @@
    }
   ],
   "wrapped": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
-  "uniV3Factory": "0x740b1c1de25031C31FF4fC9A62f554A55cdC1baD"
+  "uniV3Factory": "0x740b1c1de25031C31FF4fC9A62f554A55cdC1baD",
+  "v2Factories": []
  }
 }

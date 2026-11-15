@@ -22,6 +22,7 @@ One `RPC_URL_<chainId>` per network you want: your node for that network. It lis
 | `FROM_BLOCK_<chainId>` | how far back the scan goes (0) |
 | `MAX_WALLETS` | wallets it will watch (100) |
 | `MIN_DEPTH_USD` | the least a pool must hold for its price to count (10000) |
+| `RPC_RPS`, `RPC_CONCURRENCY` | how hard it may ask your node: requests a second (5) and at once (4) per network. Gentle by default, for a hosted node with limits; your own node can take far more |
 | `VERBOSE` | log the scan |
 
 Instant Wallet: set `INDEXER_URL=http://127.0.0.1:4100` (its `run-local.sh` does it).
@@ -40,10 +41,14 @@ Instant Wallet: set `INDEXER_URL=http://127.0.0.1:4100` (its `run-local.sh` does
   `Transfer` to or from the wallet), read back in time from when the wallet was first asked about, then each new block.
 - **Balances:** always read live (`balanceOf`, through Multicall3). The logs only say which coins to ask about.
 - **Names, symbols, decimals:** asked from each token once, kept in the database.
-- **Prices:** from the chain. The coin's Uniswap v3 pool against USDC, or against the network's wrapped coin. Of
-  the pools that exist, the one holding the most USDC-or-coin wins, if it holds at least $10,000. The price is the
-  pool's 30-minute average, so one block can't fake it. No pool like that: no price (the wallet treats such coins
-  as spam). USDC counts as $1.
+- **Prices:** from the chain. The coin's pool against USDC, USDT, DAI or the network's wrapped coin, in Uniswap v3
+  and the v2-style DEXes (Uniswap v2, SushiSwap). The pool holding the most dollars of the other side wins, if
+  that's at least $10,000. A v3 price is the pool's 30-minute average, so one block can't fake it; a v2 pool must
+  have traded in the last 30 days. No pool: an Aave token or a vault share is priced through what it holds. Else no
+  price (the wallet treats such coins as spam). USDC counts as $1.
+- **Gentle on the node:** reads merge into a few large Multicall3 calls, at a set pace (`RPC_RPS`). A wallet with
+  300 coins: about 90 requests the first time, 8 after. A spam token that burns its call's gas can't take real
+  coins down with it: token reads are asked again in small groups.
 
 ## Next (once the test suite runs clean)
 
