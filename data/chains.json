@@ -197,7 +197,14 @@
   "v2Factories": [
    "0x0c3c1c532F1e39EdF36BE9Fe0bE1410313E074Bf"
   ],
-  "gasMulticall": "0x1F98415757620B543A52E61c46B32eB19261F984"
+  "gasMulticall": "0x1F98415757620B543A52E61c46B32eB19261F984",
+  "solidly": [
+   "0xF1046053aa5682b4F9a81b5481394DA16BE5FF5a"
+  ],
+  "slipstream": [
+   "0xCc0bDDB707055e04e497aB22a59c2aF4391cd12F",
+   "0xe13Dd1fbA721Aa81a1826D9523AC9BC7d260c879"
+  ]
  },
  "56": {
   "name": "BNB Chain",
@@ -757,7 +764,14 @@
   "v2Factories": [
    "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6"
   ],
-  "gasMulticall": "0x091e99cb1C49331a94dD62755D168E941AbD0693"
+  "gasMulticall": "0x091e99cb1C49331a94dD62755D168E941AbD0693",
+  "solidly": [
+   "0x420DD381b31aEf6683db6B902084cB0FFECe40Da"
+  ],
+  "slipstream": [
+   "0x5e7BB104d84c7CB9B682AaC2F3d509f5F406809A",
+   "0xaDe65c38CD4849aDBA595a4323a8C7DdfE89716a"
+  ]
  },
  "9745": {
   "name": "Plasma",

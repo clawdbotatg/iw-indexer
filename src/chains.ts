@@ -15,6 +15,8 @@ export type ChainCfg = {
   wrapped: `0x${string}` | null;
   uniV3Factory: `0x${string}` | null;
   v2Factories?: `0x${string}`[]; // Uniswap v2 and its copies (getPair), for prices
+  solidly?: `0x${string}`[]; // Aerodrome, Velodrome: getPool(a, b, stable)
+  slipstream?: `0x${string}`[]; // their concentrated pools (Uniswap v3's math): getPool(a, b, tickSpacing)
   gasMulticall?: `0x${string}`; // Uniswap's multicall, which caps each call's gas (token reads)
   tokens: Tok[];
   rpc: string;
@@ -180,7 +182,8 @@ async function flush(c: ChainCfg, k: string, kind: Kind) {
       }
     }
     for (const w of q.waiting) w.ok(out.slice(w.from, w.from + w.n));
-  } catch (e) {
+  } catch (e: any) {
+    console.error(c.name, kind, q.calls.length, "reads failed:", String(e?.shortMessage || e?.message || e).slice(0, 200));
     for (const w of q.waiting) w.no(e);
   }
 }

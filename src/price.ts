@@ -5,8 +5,10 @@ import { multicall, type ChainCfg } from "./chains.ts";
  * A coin's dollar price, from the chain alone.
  *
  * 1. Pools: the coin against USDC, USDT, DAI (each counted as $1) or the network's wrapped coin (its own price), in
- *    Uniswap v3 (fees 0.01%, 0.05%, 0.3%, 1%) and the v2-style DEXes in data/chains.json (Uniswap v2, SushiSwap...).
- *    The pool holding the most dollars of the other side wins, if that's at least MIN_DEPTH ($50,000): a coin with no
+ *    Uniswap v3 (fees 0.01%, 0.05%, 0.3%, 1%), the v2-style DEXes in data/chains.json (Uniswap v2, SushiSwap...),
+ *    and Aerodrome / Velodrome (their v2-style pools, volatile and stable, and their v3-style Slipstream pools).
+ *    The pool holding the most dollars of the other side wins, if that's at least MIN_DEPTH ($50,000), or if two or more
+ *    pools agree on the price within 3% and hold $25,000 between them: a coin with no
  *    real pool has no price (the wallet treats it as spam, as it does today). A v3 price is the pool's 30-minute
  *    average (observe), so one block can't fake it; a v2 price is its reserves now, from a pool traded in the last 30
  *    days.
@@ -27,7 +29,16 @@ const v3p = parseAbi([
   "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool)",
   "function observe(uint32[] secondsAgos) view returns (int56[] tickCumulatives, uint160[] secondsPerLiquidityCumulativeX128s)",
 ]);
-const v2p = parseAbi(["function getReserves() view returns (uint112, uint112, uint32)"]);
+// Aerodrome and Velodrome: Uniswap v2-style pools, volatile or stable (stable ones, priced by getAmountOut), and
+// Slipstream, their copy of Uniswap v3 (slot0 one field shorter)
+const solf = parseAbi(["function getPool(address,address,bool) view returns (address)"]);
+const solp = parseAbi(["function getAmountOut(uint256,address) view returns (uint256)", "function getReserves() view returns (uint256, uint256, uint256)"]);
+const clf = parseAbi(["function getPool(address,address,int24) view returns (address)"]);
+const clp = parseAbi([
+  "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, bool)",
+  "function observe(uint32[] secondsAgos) view returns (int56[] tickCumulatives, uint160[] secondsPerLiquidityCumulativeX128s)",
+]);
+const SPACINGS = [1, 10, 50, 100, 200, 2000];
 const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)"]);
 const wrap = parseAbi([
   "function UNDERLYING_ASSET_ADDRESS() view returns (address)",
@@ -43,7 +54,8 @@ const cache = new Map<string, { at: number; p: Promise<number | null>; none?: bo
 // how many dollars the deepest pool holds, per coin priced from a pool (a holding worth more than that can't be sold
 // for it: spam with a small real pool, airdropped in the millions, priced 22 test wallets at $430k)
 const depths = new Map<string, number>();
-type Pool = { kind: "v3" | "v2"; addr: string; quote: string };
+type Kind = "v3" | "v2" | "cl" | "stable";
+type Pool = { kind: Kind; addr: string; quote: string };
 
 export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | null>) {
   const usdc = c.usdc?.toLowerCase();
@@ -58,10 +70,15 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
   /** The deepest pool against any quote coin: { price, depth in dollars }. */
   async function pools(t: string): Promise<{ p: number; usd: number } | null> {
     const qs = quotes.filter(q => q !== t);
-    const asks: { q: string; kind: "v3" | "v2"; call: any }[] = [];
+    const asks: { q: string; kind: Kind; call: any }[] = [];
     for (const q of qs) {
       if (c.uniV3Factory) for (const f of FEES) asks.push({ q, kind: "v3", call: { address: c.uniV3Factory, abi: v3f, functionName: "getPool", args: [t, q, f] } });
       for (const f of v2s) asks.push({ q, kind: "v2", call: { address: f, abi: v2f, functionName: "getPair", args: [t, q] } });
+      for (const f of c.solidly ?? []) {
+        asks.push({ q, kind: "v2", call: { address: f, abi: solf, functionName: "getPool", args: [t, q, false] } });
+        asks.push({ q, kind: "stable", call: { address: f, abi: solf, functionName: "getPool", args: [t, q, true] } });
+      }
+      for (const f of c.slipstream ?? []) for (const s of SPACINGS) asks.push({ q, kind: "cl", call: { address: f, abi: clf, functionName: "getPool", args: [t, q, s] } });
     }
     if (!asks.length) return null;
     const found: Pool[] = (await multicall(c, asks.map(a => a.call), "pool"))
@@ -70,15 +87,21 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
     if (!found.length) return null;
     const dt = await decimalsOf(t);
     if (dt === null) return null;
-    // v3: the quote coin it holds, slot0, the 30-minute average; v2: its reserves
+    // v3 and Slipstream: the quote coin it holds, slot0, the 30-minute average; v2: its reserves; a stable pool: its
+    // reserves and what one coin sells for (its curve is flat near the peg: the reserves' ratio says nothing)
     const calls = found.map(p =>
-      p.kind === "v3"
+      p.kind === "v3" || p.kind === "cl"
         ? [
             { address: p.quote, abi: erc20, functionName: "balanceOf", args: [p.addr] },
-            { address: p.addr, abi: v3p, functionName: "slot0" },
-            { address: p.addr, abi: v3p, functionName: "observe", args: [[TWAP, 0]] },
+            { address: p.addr, abi: p.kind === "cl" ? clp : v3p, functionName: "slot0" },
+            { address: p.addr, abi: p.kind === "cl" ? clp : v3p, functionName: "observe", args: [[TWAP, 0]] },
           ]
-        : [{ address: p.addr, abi: v2p, functionName: "getReserves" }],
+        : p.kind === "stable"
+          ? [
+              { address: p.addr, abi: solp, functionName: "getReserves" },
+              { address: p.addr, abi: solp, functionName: "getAmountOut", args: [10n ** BigInt(dt), t] },
+            ]
+          : [{ address: p.addr, abi: solp, functionName: "getReserves" }],
     );
     const flat = await multicall(c, calls.flat(), "pool");
     const at = calls.map((_, i) => calls.slice(0, i).reduce((s, x) => s + x.length, 0));
@@ -87,6 +110,7 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
     const qs2 = [...new Set(found.map(p => p.quote))];
     const qi = new Map(await Promise.all(qs2.map(async q => [q, [await decimalsOf(q), await quoteUsd(q)]] as const)));
     let top: { p: number; usd: number } | null = null;
+    const seen: { p: number; usd: number }[] = [];
     for (let i = 0; i < found.length; i++) {
       const pl = found[i];
       const [a, b, o] = flat.slice(at[i], at[i] + calls[i].length);
@@ -94,7 +118,7 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
       if (dq === null || !qUsd) continue;
       const tIs0 = t < pl.quote;
       let inQuote: number, depth: number;
-      if (pl.kind === "v3") {
+      if (pl.kind === "v3" || pl.kind === "cl") {
         if (a.status !== "success" || b.status !== "success") continue;
         depth = Number(a.result as bigint) / 10 ** dq;
         // the tick: the 30-minute average when the pool keeps enough history, else now. tick = log1.0001(token1/token0)
@@ -104,17 +128,27 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
         inQuote = (tIs0 ? raw : 1 / raw) * 10 ** (dt - dq);
       } else {
         if (a.status !== "success") continue;
-        const [r0, r1, last] = a.result as [bigint, bigint, number];
+        const [r0, r1, last] = a.result as [bigint, bigint, bigint];
         const [rt, rq] = tIs0 ? [r0, r1] : [r1, r0];
         // a pool nobody has traded in for 30 days says nothing about today (a 2021 pool priced a dead coin at $850k)
         if (!rt || Date.now() / 1000 - Number(last) > 30 * 86400) continue;
         depth = Number(rq) / 10 ** dq;
-        inQuote = Number(rq) / 10 ** dq / (Number(rt) / 10 ** dt);
+        if (pl.kind === "stable") {
+          if (b.status !== "success") continue;
+          inQuote = Number(b.result as bigint) / 10 ** dq;
+        } else inQuote = Number(rq) / 10 ** dq / (Number(rt) / 10 ** dt);
       }
       const usd = depth * qUsd;
+      seen.push({ p: inQuote * qUsd, usd });
       if (!top || usd > top.usd) top = { p: inQuote * qUsd, usd };
     }
-    return top && top.usd >= MIN_DEPTH ? top : null;
+    if (!top) return null;
+    if (top.usd >= MIN_DEPTH) return top;
+    // no one deep pool (an L2 coin's money is often split across DEXes: wstETH on Optimism, $32k at most in one):
+    // two or more pools that agree within 3% and hold half of MIN_DEPTH between them. Spam has one pool, mostly
+    const agree = seen.filter(x => Math.abs(x.p / top!.p - 1) < 0.03);
+    const sum = agree.reduce((s, x) => s + x.usd, 0);
+    return agree.length >= 2 && sum >= MIN_DEPTH / 2 ? { p: top.p, usd: sum } : null;
   }
 
   /** A claim on another coin (aToken, vault share): its price through that coin. */
