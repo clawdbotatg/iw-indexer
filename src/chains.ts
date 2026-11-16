@@ -18,6 +18,7 @@ export type ChainCfg = {
   solidly?: `0x${string}`[]; // Aerodrome, Velodrome: getPool(a, b, stable)
   slipstream?: `0x${string}`[]; // their concentrated pools (Uniswap v3's math): getPool(a, b, tickSpacing)
   v4?: { poolManager: `0x${string}`; stateView: `0x${string}`; quoter: `0x${string}`; from: number }; // Uniswap v4 (from: its first block)
+  sameAs?: Record<string, string>; // coins bridged some other way, by hand: this coin = that one on Ethereum
   gasMulticall?: `0x${string}`; // Uniswap's multicall, which caps each call's gas (token reads)
   tokens: Tok[];
   rpc: string;

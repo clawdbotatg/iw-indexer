@@ -119,7 +119,11 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
       if (q === wrapped || q === usdc) for (const f of c.slipstream ?? []) for (const s of SPACINGS) asks.push({ q, kind: "cl", call: { address: f, abi: clf, functionName: "getPool", args: [t, q, s] } });
     }
     if (!asks.length) return null;
-    const found: Pool[] = (await multicall(c, asks.map(a => a.call), "pool"))
+    const got = await multicall(c, asks.map(a => a.call), "pool");
+    // a factory never fails a getPool: a failure is the node's (busy, cut off), and "no price" from it would be kept
+    // a day (it was: YFI). Thrown, so nothing is kept and the next ask tries again
+    if (got.some(r => r.status !== "success")) throw new Error("pool search incomplete");
+    const found: Pool[] = got
       .map((r, i) => (r.status === "success" && r.result !== ZERO ? { kind: asks[i].kind, addr: r.result as string, quote: asks[i].q } : null))
       .filter(Boolean) as Pool[];
     if (!found.length) return v4(t);
@@ -142,6 +146,8 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
           : [{ address: p.addr, abi: solp, functionName: "getReserves" }],
     );
     const flat = await multicall(c, calls.flat(), "pool");
+    // the same for the pools' own reads (all but observe, which a pool without enough history fails)
+    if (calls.flat().some((x: any, i) => x.functionName !== "observe" && x.functionName !== "getAmountOut" && flat[i].status !== "success")) throw new Error("pool reads incomplete");
     const at = calls.map((_, i) => calls.slice(0, i).reduce((s, x) => s + x.length, 0));
     // the quote coins' decimals and dollar price, all at once (awaited one by one, every coin's reads trickled out
     // in hundreds of small requests)
@@ -259,6 +265,7 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
     const under = (r: typeof aave) => (r.status === "success" && r.result !== ZERO ? String(r.result).toLowerCase() : null);
     // bridged from Ethereum by the official bridge: the original's price (same decimals: the bridge keeps them)
     const eth = pricers.get(1);
+    if (eth && c.sameAs?.[t]) return eth(c.sameAs[t], true); // SNX and LYRA on Optimism: Synthetix's own bridge
     if (eth && c.id !== 1) {
       if (under(remote) && under(bridge) === OP_BRIDGE) return eth(under(remote)!, true);
       if (under(oldRemote) && under(oldBridge) === OP_BRIDGE) return eth(under(oldRemote)!, true);
