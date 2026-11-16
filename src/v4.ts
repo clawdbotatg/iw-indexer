@@ -79,7 +79,7 @@ async function run(c: ChainCfg, quotes: string[]) {
 /** eth_getLogs over [from, to], split in halves while the node says the range is too much. */
 async function logsIn(c: ChainCfg, topics: any[], from: bigint, to: bigint, depth = 0): Promise<any[]> {
   try {
-    return (await c.client.request({
+    return (await c.logs.request({
       method: "eth_getLogs",
       params: [{ address: c.v4!.poolManager, fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16), topics }],
     } as any)) as any[];

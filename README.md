@@ -22,7 +22,9 @@ One `RPC_URL_<chainId>` per network you want: your node for that network. It lis
 | `FROM_BLOCK_<chainId>` | how far back the scan goes (0) |
 | `MAX_WALLETS` | wallets it will watch (100) |
 | `MIN_DEPTH_USD` | the least a pool must hold for its price to count (50000) |
-| `RPC_RPS`, `RPC_CONCURRENCY` | how hard it may ask your node: requests a second (5) and at once (4) per network. Gentle by default, for a hosted node with limits; your own node can take far more |
+| `LOGS_URL_<chainId>` | where log searches go instead (history, v4 pools), for a node that can't search wide ranges (a light client: 512 blocks at a time) |
+| `RPC_BATCH` | reads per request at most (no limit; a node on this computer: 20, since a light client proves every read and refuses big batches) |
+| `RPC_RPS`, `RPC_CONCURRENCY` | how hard it may ask your node: requests a second (5) and at once (4) per network. Gentle by default (5 and 4), for a hosted node with limits; a node on this computer (127.0.0.1, localhost) gets 50 and 8 |
 | `VERBOSE`, `DEBUG_RPC`, `DEBUG_FLUSH` | log the scan; every request to the node (size, time); every merged read |
 
 Instant Wallet: set `INDEXER_URL=http://127.0.0.1:4100` (its `run-local.sh` does it).

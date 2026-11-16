@@ -23,7 +23,9 @@ export type ChainCfg = {
   tokens: Tok[];
   rpc: string;
   client: PublicClient;
+  logs: PublicClient; // where log searches go: LOGS_URL_<chainId> if set (a light client answers 512 blocks at a time), else the node
   fromBlock: bigint; // the oldest block a scan goes back to (FROM_BLOCK_<chainId>, else 0)
+  batch: number; // reads per request at most (RPC_BATCH; a node on this computer: 20, a light client proves each one; else no limit)
 };
 
 /**
@@ -79,15 +81,23 @@ function node(url: string, limit: number, rps: number) {
 
 export const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 
-const all = JSON.parse(readFileSync(new URL("../data/chains.json", import.meta.url), "utf8")) as Record<string, Omit<ChainCfg, "id" | "rpc" | "client" | "fromBlock">>;
+const all = JSON.parse(readFileSync(new URL("../data/chains.json", import.meta.url), "utf8")) as Record<string, Omit<ChainCfg, "id" | "rpc" | "client" | "logs" | "fromBlock" | "batch">>;
 
 export function chains(env = process.env): ChainCfg[] {
   const out: ChainCfg[] = [];
   for (const [id, c] of Object.entries(all)) {
     const rpc = env[`RPC_URL_${id}`];
     if (!rpc) continue;
-    const client = createPublicClient({ transport: custom({ request: node(rpc, Number(env.RPC_CONCURRENCY || 4), Number(env.RPC_RPS || 5)) }, { retryCount: 0 }) }) as PublicClient;
-    out.push({ ...c, id: Number(id), rpc, client, fromBlock: BigInt(env[`FROM_BLOCK_${id}`] || 0) });
+    // a node on this computer has no rate limit to keep to: 50 a second, 8 at once (RPC_RPS, RPC_CONCURRENCY set both)
+    const mine = (u: string) => /^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(u);
+    const make = (u: string) =>
+      createPublicClient({
+        transport: custom({ request: node(u, Number(env.RPC_CONCURRENCY || (mine(u) ? 8 : 4)), Number(env.RPC_RPS || (mine(u) ? 50 : 5))) }, { retryCount: 0 }),
+      }) as PublicClient;
+    const client = make(rpc);
+    const logsUrl = env[`LOGS_URL_${id}`];
+    const batch = Number(env.RPC_BATCH || (mine(rpc) ? 20 : 0)) || Infinity;
+    out.push({ ...c, id: Number(id), rpc, client, logs: logsUrl ? make(logsUrl) : client, fromBlock: BigInt(env[`FROM_BLOCK_${id}`] || 0), batch });
   }
   return out;
 }
@@ -134,7 +144,7 @@ const ugas = parseAbi([
 ]);
 const GAS: Record<Kind, number> = { token: 150_000, probe: 200_000, sim: 1_000_000, pool: 0 };
 async function capped(c: ChainCfg, cs: readonly any[], gas: number): Promise<Res[]> {
-  const per = Math.floor(45_000_000 / gas);
+  const per = Math.min(Math.floor(45_000_000 / gas), c.batch);
   const parts: Promise<Res[]>[] = [];
   for (let i = 0; i < cs.length; i += per) {
     const part = cs.slice(i, i + per);
@@ -183,7 +193,13 @@ async function flush(c: ChainCfg, k: string, kind: Kind) {
     }
     return;
   }
-  const run = (cs: readonly any[]) => c.client.multicall({ multicallAddress: MULTICALL3, allowFailure: true, batchSize: 200_000, contracts: cs as any[] }) as Promise<Res[]>;
+  const one = (cs: readonly any[]) => c.client.multicall({ multicallAddress: MULTICALL3, allowFailure: true, batchSize: 200_000, contracts: cs as any[] }) as Promise<Res[]>;
+  const run = async (cs: readonly any[]): Promise<Res[]> => {
+    if (cs.length <= c.batch) return one(cs);
+    const parts: Promise<Res[]>[] = [];
+    for (let i = 0; i < cs.length; i += c.batch) parts.push(one(cs.slice(i, i + c.batch)));
+    return (await Promise.all(parts)).flat();
+  };
   try {
     const out = await run(q.calls);
     for (const [size, most] of AGAIN[kind]) {

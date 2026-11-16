@@ -29,12 +29,13 @@ export function scanner(c: ChainCfg, d: Db, log = (..._: unknown[]) => {}) {
       d.q.move.run(c.id, Number(BigInt(l.blockNumber)), l.transactionHash, Number(BigInt(l.logIndex)), token, src, dst, BigInt(l.data === "0x" ? 0 : l.data).toString());
     }
   };
+  const getLogs = <T>(params: unknown[]) => c.logs.request({ method: "eth_getLogs" as any, params: params as any }) as Promise<T>;
   const logs = async (from: bigint, to: bigint, ws: string[]) => {
     const t = ws.map(pad);
     const range = { fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16) };
     const [out, inn] = await Promise.all([
-      rpc<Log[]>("eth_getLogs", [{ ...range, topics: [TRANSFER, t] }]),
-      rpc<Log[]>("eth_getLogs", [{ ...range, topics: [TRANSFER, null, t] }]),
+      getLogs<Log[]>([{ ...range, topics: [TRANSFER, t] }]),
+      getLogs<Log[]>([{ ...range, topics: [TRANSFER, null, t] }]),
     ]);
     return [...out, ...inn];
   };

@@ -344,10 +344,12 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
     // too slow (a wallet with 10,000 coins asks for all their pools at once) or failed: no price this time, and not
     // kept, so the next ask tries again (kept, it hid mainnet ETH's price for an hour)
     const LATE = Symbol();
+    // no price for ETH, a quote coin, or one asked from inside another's price is a failed read, never "no pool":
+    // not kept (kept a day, it hid ETH on a light client that had refused one read)
     const timed = () => Promise.race([compute(t), new Promise<typeof LATE>(r => setTimeout(() => r(LATE), 300_000))]);
     const entry: { at: number; p: Promise<number | null>; none?: boolean } = { at: Date.now(), p: null as any };
     const forget = () => (cache.get(k) === entry && cache.delete(k), null);
-    entry.p = (inner ? timed() : slot(timed)).then(v => (v === LATE ? forget() : (v === null && ((entry.none = true), inner || unpriced?.set(lt)), v)), forget);
+    entry.p = (inner ? timed() : slot(timed)).then(v => (v === LATE ? forget() : (v === null && (inner || lt === "native" || lt === wrapped || quotes.includes(lt) ? forget() : ((entry.none = true), unpriced?.set(lt))), v)), forget);
     cache.set(k, entry);
     return entry.p;
   }
