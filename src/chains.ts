@@ -17,6 +17,7 @@ export type ChainCfg = {
   v2Factories?: `0x${string}`[]; // Uniswap v2 and its copies (getPair), for prices
   solidly?: `0x${string}`[]; // Aerodrome, Velodrome: getPool(a, b, stable)
   slipstream?: `0x${string}`[]; // their concentrated pools (Uniswap v3's math): getPool(a, b, tickSpacing)
+  v4?: { poolManager: `0x${string}`; stateView: `0x${string}`; quoter: `0x${string}`; from: number }; // Uniswap v4 (from: its first block)
   gasMulticall?: `0x${string}`; // Uniswap's multicall, which caps each call's gas (token reads)
   tokens: Tok[];
   rpc: string;
@@ -132,17 +133,26 @@ async function capped(c: ChainCfg, cs: readonly any[], gas: number): Promise<Res
   const parts: Promise<Res[]>[] = [];
   for (let i = 0; i < cs.length; i += per) {
     const part = cs.slice(i, i + per);
+    // a call that can't be encoded (an argument out of range) fails alone: it is sent as an empty call
+    const enc = (x: any) => {
+      try {
+        return encodeFunctionData({ abi: x.abi, functionName: x.functionName, args: x.args });
+      } catch {
+        return null;
+      }
+    };
+    const bodies = part.map(enc);
     const data = encodeFunctionData({
       abi: ugas,
       functionName: "multicall",
-      args: [part.map(x => ({ target: x.address, gasLimit: BigInt(gas), callData: encodeFunctionData({ abi: x.abi, functionName: x.functionName, args: x.args }) }))],
+      args: [part.map((x, j) => ({ target: bodies[j] ? x.address : MULTICALL3, gasLimit: BigInt(gas), callData: bodies[j] ?? "0x" }))],
     });
     parts.push(
       c.client.call({ to: c.gasMulticall!, data, gas: 50_000_000n }).then(r => {
         const [, out] = decodeFunctionResult({ abi: ugas, functionName: "multicall", data: r.data! }) as any;
         return part.map((x, j): Res => {
           const o = out[j];
-          if (!o.success || o.returnData === "0x") return { status: "failure" };
+          if (!bodies[j] || !o.success || o.returnData === "0x") return { status: "failure" };
           try {
             return { status: "success", result: decodeFunctionResult({ abi: x.abi, functionName: x.functionName, data: o.returnData }) };
           } catch {

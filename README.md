@@ -42,7 +42,8 @@ Instant Wallet: set `INDEXER_URL=http://127.0.0.1:4100` (its `run-local.sh` does
 - **Balances:** always read live (`balanceOf`, through Multicall3). The logs only say which coins to ask about.
 - **Names, symbols, decimals:** asked from each token once, kept in the database.
 - **Prices:** from the chain. The coin's pool against USDC, USDT, DAI or the network's wrapped coin, in Uniswap v3
-  the v2-style DEXes (Uniswap v2, SushiSwap), and Aerodrome / Velodrome on Base and Optimism. The pool holding the most dollars of the other side wins, if
+  the v2-style DEXes (Uniswap v2, SushiSwap), and Aerodrome / Velodrome on Base and Optimism. A coin found in none of
+  those: Uniswap v4, if a $5,000 sale through its Quoter gets 90% back. The pool holding the most dollars of the other side wins, if
   that's at least $50,000. A v3 price is the pool's 30-minute average, so one block can't fake it; a v2 pool must
   have traded in the last 30 days. No pool: an Aave token or a vault share is priced through what it holds. Else no
   price (the wallet treats such coins as spam). USDC counts as $1.
@@ -58,7 +59,7 @@ Instant Wallet: set `INDEXER_URL=http://127.0.0.1:4100` (its `run-local.sh` does
    checked live, images from the token's own `tokenURI`.
 3. **Prices on networks without Uniswap v3 here** (Gnosis, Sonic, HyperEVM, Plasma, Robinhood): their own DEXes
    (Balancer, Curve, Shadow, Hyperswap...) or Chainlink feeds. USDC only, for now.
-4. Uniswap v4 pools and Chainlink feeds next to v3, for coins whose deepest pool is there.
+4. Chainlink feeds; Uniswap v4 for coins that also have a smaller pool elsewhere (v4 is asked only when nothing else is).
 5. The network's own coin moving in from a contract (needs traces); `SafeReceived` covers Safes.
 
 Positions (Aave, Morpho...) are a separate repo: `iw-positions`.
