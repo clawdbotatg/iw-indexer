@@ -60,6 +60,8 @@ const wrap = parseAbi([
   "function want() view returns (address)",
   "function getPricePerFullShare() view returns (uint256)",
   "function borrowAllowance(address, address) view returns (uint256)",
+  "function totalAssets() view returns (uint256)",
+  "function totalSupply() view returns (uint256)",
 ]);
 const ZERO = "0x0000000000000000000000000000000000000000";
 const STABLES = /^(USDT|USDT0|USD₮0|DAI)$/;
@@ -179,11 +181,12 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
       if (!top || usd > top.usd) top = { p: inQuote * qUsd, usd };
     }
     if (!top) return v4(t);
-    if (top.usd >= MIN_DEPTH) return top;
-    // no one deep pool (an L2 coin's money is often split across DEXes: wstETH on Optimism, $32k at most in one):
-    // two or more pools that agree within 3% and hold half of MIN_DEPTH between them. Spam has one pool, mostly
+    // the depth: every pool that agrees with the deepest within 3%
     const agree = seen.filter(x => Math.abs(x.p / top!.p - 1) < 0.03);
     const sum = agree.reduce((s, x) => s + x.usd, 0);
+    if (top.usd >= MIN_DEPTH) return { p: top.p, usd: sum };
+    // no one deep pool (an L2 coin's money is often split across DEXes: wstETH on Optimism, $32k at most in one):
+    // two or more pools that agree and hold half of MIN_DEPTH between them. Spam has one pool, mostly
     return agree.length >= 2 && sum >= MIN_DEPTH / 2 ? { p: top.p, usd: sum } : v4(t);
   }
 
@@ -268,10 +271,17 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
     const dt = await decimalsOf(t);
     if (dt === null) return null;
     if (under(asset)) {
-      const [r] = await multicall(c, [{ address: a, abi: wrap, functionName: "convertToAssets", args: [10n ** BigInt(dt)] }], "sim");
+      const [r, held, supply] = await multicall(c, [
+        { address: a, abi: wrap, functionName: "convertToAssets", args: [10n ** BigInt(dt)] },
+        { address: a, abi: wrap, functionName: "totalAssets" },
+        { address: under(asset)! as `0x${string}`, abi: wrap, functionName: "totalSupply" },
+      ], "sim");
       const du = await decimalsOf(under(asset)!);
       const p = await price(under(asset)!, true);
       if (r.status !== "success" || du === null || p === null) return null;
+      // a vault can't hold more of a coin than there is (a broken Euler vault said 25.7 billion USDC on Arbitrum,
+      // with $52 in it: one wallet's share came to $82M)
+      if (held.status === "success" && supply.status === "success" && (held.result as bigint) > (supply.result as bigint)) return null;
       return (Number(r.result as bigint) / 10 ** du) * p;
     }
     if (under(want) && pps.status === "success") {

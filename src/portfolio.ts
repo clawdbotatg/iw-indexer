@@ -96,8 +96,9 @@ export function portfolio(c: ChainCfg, d: Db) {
         if (!m) return null;
         let p = await price(t);
         const formatted = formatUnits(bal, m.decimals);
-        // worth more than its pool holds: the pool couldn't pay it, so no price (Alchemy has none for such coins)
-        if (p !== null && Number(formatted) * p > price.depth(t)) p = null;
+        // worth 10 times more than its pools hold: they couldn't pay a tenth of it, so no price (spam airdropped in the
+        // millions, with one small real pool). Not 1 time: 168k ENS is worth more than ENS's pools, and is real
+        if (p !== null && Number(formatted) * p > 10 * price.depth(t)) p = null;
         return {
           chainId: c.id,
           asset: t === "native" ? ETH : getAddress(t),
