@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
  *   seen       every token that ever moved in or out of a wallet (what /portfolio checks besides the well-known list)
  *   transfers  those moves (for /transfers)
  *   tokens     a token's name, symbol and decimals, read once from the chain
+ *   unpriced   coins with no price when last looked up, and when (spam, mostly: looked up again after a day)
  */
 export type Db = ReturnType<typeof open>;
 
@@ -19,6 +20,7 @@ export function open(path: string) {
     CREATE INDEX IF NOT EXISTS transfers_dst ON transfers (chain, dst, block);
     CREATE INDEX IF NOT EXISTS transfers_src ON transfers (chain, src, block);
     CREATE TABLE IF NOT EXISTS tokens (chain INTEGER, token TEXT, symbol TEXT, name TEXT, decimals INTEGER, PRIMARY KEY (chain, token));
+    CREATE TABLE IF NOT EXISTS unpriced (chain INTEGER, token TEXT, at INTEGER, PRIMARY KEY (chain, token));
   `);
   db.exec("DELETE FROM tokens WHERE decimals IS NULL"); // 0.1 kept a failed read as "not a token" for good
   const q = {
@@ -33,6 +35,8 @@ export function open(path: string) {
     movesIn: db.prepare("SELECT * FROM transfers WHERE chain = ? AND dst = ? ORDER BY block DESC, idx DESC LIMIT ?"),
     movesAll: db.prepare("SELECT * FROM transfers WHERE chain = ? AND (dst = ? OR src = ?) ORDER BY block DESC, idx DESC LIMIT ?"),
     token: db.prepare("SELECT * FROM tokens WHERE chain = ? AND token = ?"),
+    unpriced: db.prepare("SELECT at FROM unpriced WHERE chain = ? AND token = ?"),
+    setUnpriced: db.prepare("INSERT OR REPLACE INTO unpriced (chain, token, at) VALUES (?, ?, ?)"),
     addToken: db.prepare("INSERT OR REPLACE INTO tokens (chain, token, symbol, name, decimals) VALUES (?, ?, ?, ?, ?)"),
   };
   return { db, q };

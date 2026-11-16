@@ -47,14 +47,17 @@ function node(url: string, limit: number, rps: number) {
     try {
       for (let attempt = 0; ; attempt++) {
         await pace();
+        const req = JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params: params ?? [] });
+        const t0 = Date.now();
         const r = await fetch(url, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method, params: params ?? [] }),
+          body: req,
           signal: AbortSignal.timeout(30_000),
         }).catch((e: Error) => ({ ok: false, status: 0, why: e.name }) as const);
         if ("json" in r && r.ok) {
           const j = await r.json();
+          if (process.env.DEBUG_RPC) console.log("rpc", url.split("/")[2].split(".")[0], method, req.length, Date.now() - t0, j.error ? "ERR " + String(j.error.message).slice(0, 80) : "");
           if (j.error) throw Object.assign(new Error(`${method}: ${String(j.error.message).slice(0, 200)}`), { code: j.error.code, data: j.error.data });
           return j.result;
         }
@@ -96,10 +99,11 @@ export function chains(env = process.env): ChainCfg[] {
  *     "token"  reads of any token a wallet holds (balance, decimals): must not be lost, so what fails is asked
  *              again in groups of 50, 10, then one at a time while few are left
  *     "pool"   DEX factories and pools, and the quote coins' balances in them: never spam, never mixed with it
- *     "probe"  is this token a vault? (most aren't: their failures are real; asked again once, in groups of 50)
+ *     "probe"  is this token a vault, a bridged coin? (most aren't: their failures are real; asked again once, in groups of 50)
+ *     "sim"    a simulated sale (v4's Quoter), a vault's convertToAssets: more gas each, never asked again
  */
 type Res = { status: "success" | "failure"; result?: any };
-export type Kind = "token" | "pool" | "probe";
+export type Kind = "token" | "pool" | "probe" | "sim";
 const queues = new Map<string, { calls: any[]; waiting: { from: number; n: number; ok: (r: Res[]) => void; no: (e: unknown) => void }[] }>();
 
 export function multicall(c: ChainCfg, contracts: readonly any[], kind: Kind): Promise<Res[]> {
@@ -119,15 +123,15 @@ export function multicall(c: ChainCfg, contracts: readonly any[], kind: Kind): P
 
 // asked again after a failure: a token read down to one at a time; a probe once, in groups of 50 (enough to get
 // out of a gas-burner's batch); a pool read never
-const AGAIN: Record<Kind, [number, number][]> = { token: [[50, 5000], [10, 300], [1, 40]], probe: [[50, 5000]], pool: [] };
+const AGAIN: Record<Kind, [number, number][]> = { token: [[50, 5000], [10, 300], [1, 40]], probe: [[50, 5000]], sim: [], pool: [] };
 
 // Uniswap's multicall gives each call its own gas: a spam token that burns its gas takes only its own read down. A
-// token read needs well under 150k; a vault's price more. Each request stays under 45M gas in all (geth's default cap
+// token read or a getter needs well under 150k (probe: 200k); a simulated sale or a vault's math more (sim: 1M). Each request stays under 45M gas in all (geth's default cap
 // for eth_call is 50M)
 const ugas = parseAbi([
   "function multicall((address target, uint256 gasLimit, bytes callData)[] calls) view returns (uint256 blockNumber, (bool success, uint256 gasUsed, bytes returnData)[] returnData)",
 ]);
-const GAS: Record<Kind, number> = { token: 150_000, probe: 1_000_000, pool: 0 };
+const GAS: Record<Kind, number> = { token: 150_000, probe: 200_000, sim: 1_000_000, pool: 0 };
 async function capped(c: ChainCfg, cs: readonly any[], gas: number): Promise<Res[]> {
   const per = Math.floor(45_000_000 / gas);
   const parts: Promise<Res[]>[] = [];

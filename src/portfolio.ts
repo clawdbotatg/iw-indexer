@@ -62,7 +62,10 @@ export function portfolio(c: ChainCfg, d: Db) {
     return new Map(ts.map(t => [t, cached(t) ?? null]));
   }
   const meta = async (t: string) => (await metas([t.toLowerCase()])).get(t.toLowerCase()) ?? null;
-  const price = pricer(c, async t => (await meta(t))?.decimals ?? null);
+  const price = pricer(c, async t => (await meta(t))?.decimals ?? null, {
+    get: t => ((d.q.unpriced.get(c.id, t) as any)?.at as number | undefined) ?? null,
+    set: t => d.q.setUnpriced.run(c.id, t, Date.now()),
+  });
 
   // one read per wallet at a time: asking again while it runs gets the same answer
   const running = new Map<string, Promise<Asset[]>>();

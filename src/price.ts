@@ -16,9 +16,9 @@ import { v4Pools } from "./v4.ts";
  *    days.
  * 2. No pool: a coin bridged from Ethereum by the network's official bridge is priced as the original there; a coin
  *    that is a claim on another one is priced through it: an Aave aToken or debt token
- *    (UNDERLYING_ASSET_ADDRESS, 1:1), an ERC-4626 vault share (asset, convertToAssets), a Beefy vault (want,
+ *    (UNDERLYING_ASSET_ADDRESS, 1:1; a debt token: no price), an ERC-4626 vault share (asset, convertToAssets), a Beefy vault (want,
  *    getPricePerFullShare).
- * Kept for a minute.
+ * A price is kept a minute; no price, a day (in the database: a big wallet has thousands of spam coins).
  */
 const MIN_DEPTH = Number(process.env.MIN_DEPTH_USD || 50_000);
 // how many coins are priced at once: all of a wallet's, by default. Their reads are merged into a few requests
@@ -41,7 +41,7 @@ const clp = parseAbi([
   "function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, bool)",
   "function observe(uint32[] secondsAgos) view returns (int56[] tickCumulatives, uint160[] secondsPerLiquidityCumulativeX128s)",
 ]);
-const SPACINGS = [1, 10, 50, 100, 200, 2000];
+const SPACINGS = [1, 50, 100, 200, 2000]; // Slipstream's, against WETH and USDC only (each one more read per coin)
 const sv = parseAbi([
   "function getSlot0(bytes32) view returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)",
   "function getLiquidity(bytes32) view returns (uint128)",
@@ -59,6 +59,7 @@ const wrap = parseAbi([
   "function convertToAssets(uint256) view returns (uint256)",
   "function want() view returns (address)",
   "function getPricePerFullShare() view returns (uint256)",
+  "function borrowAllowance(address, address) view returns (uint256)",
 ]);
 const ZERO = "0x0000000000000000000000000000000000000000";
 const STABLES = /^(USDT|USDT0|USD₮0|DAI)$/;
@@ -88,7 +89,11 @@ const depths = new Map<string, number>();
 type Kind = "v3" | "v2" | "cl" | "stable";
 type Pool = { kind: Kind; addr: string; quote: string };
 
-export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | null>) {
+/** Where "no price" is remembered (the database): a big wallet's thousands of spam coins are looked up once a day. */
+export type Unpriced = { get: (t: string) => number | null; set: (t: string) => void };
+const DAY = 86400_000;
+
+export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | null>, unpriced?: Unpriced) {
   const usdc = c.usdc?.toLowerCase();
   const wrapped = c.wrapped?.toLowerCase();
   const stables = [usdc, ...c.tokens.filter(t => STABLES.test(t.symbol)).map(t => t.address.toLowerCase())].filter(Boolean) as string[];
@@ -109,7 +114,7 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
         asks.push({ q, kind: "v2", call: { address: f, abi: solf, functionName: "getPool", args: [t, q, false] } });
         asks.push({ q, kind: "stable", call: { address: f, abi: solf, functionName: "getPool", args: [t, q, true] } });
       }
-      for (const f of c.slipstream ?? []) for (const s of SPACINGS) asks.push({ q, kind: "cl", call: { address: f, abi: clf, functionName: "getPool", args: [t, q, s] } });
+      if (q === wrapped || q === usdc) for (const f of c.slipstream ?? []) for (const s of SPACINGS) asks.push({ q, kind: "cl", call: { address: f, abi: clf, functionName: "getPool", args: [t, q, s] } });
     }
     if (!asks.length) return null;
     const found: Pool[] = (await multicall(c, asks.map(a => a.call), "pool"))
@@ -221,7 +226,7 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
       abi: quoter,
       functionName: "quoteExactInputSingle",
       args: [{ poolKey: x.pl.key, zeroForOne: x.pl.tIs0, exactAmount: BigInt(Math.floor(amount(x))), hookData: "0x" }],
-    })), "probe");
+    })), "sim");
     for (const [i, x] of top3.entries()) {
       const r = sells[i];
       if (r.status !== "success") continue;
@@ -235,7 +240,7 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
   /** A claim on another coin (aToken, vault share): its price through that coin. */
   async function through(t: string): Promise<number | null> {
     const a = t as `0x${string}`;
-    const [aave, asset, want, pps, remote, bridge, l1, gw, oldRemote, oldBridge] = await multicall(c, [
+    const [aave, asset, want, pps, remote, bridge, l1, gw, oldRemote, oldBridge, debt] = await multicall(c, [
       { address: a, abi: wrap, functionName: "UNDERLYING_ASSET_ADDRESS" },
       { address: a, abi: wrap, functionName: "asset" },
       { address: a, abi: wrap, functionName: "want" },
@@ -246,6 +251,7 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
       { address: a, abi: bridged, functionName: "l2Gateway" },
       { address: a, abi: bridged, functionName: "l1Token" }, // the older OP bridge token
       { address: a, abi: bridged, functionName: "l2Bridge" },
+      { address: a, abi: wrap, functionName: "borrowAllowance", args: [ZERO, ZERO] }, // only Aave's debt tokens
     ], "probe");
     const under = (r: typeof aave) => (r.status === "success" && r.result !== ZERO ? String(r.result).toLowerCase() : null);
     // bridged from Ethereum by the official bridge: the original's price (same decimals: the bridge keeps them)
@@ -255,11 +261,14 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
       if (under(oldRemote) && under(oldBridge) === OP_BRIDGE) return eth(under(oldRemote)!, true);
       if (under(l1) && ARB_GATEWAYS.has(under(gw) ?? "")) return eth(under(l1)!, true);
     }
+    // an Aave debt token is money owed, not owned: no price (as Alchemy; it counted debt as savings, +50% on 8 test
+    // wallets). Positions (iw-positions) is where debt shows
+    if (under(aave) && debt.status === "success") return null;
     if (under(aave)) return price(under(aave)!, true);
     const dt = await decimalsOf(t);
     if (dt === null) return null;
     if (under(asset)) {
-      const [r] = await multicall(c, [{ address: a, abi: wrap, functionName: "convertToAssets", args: [10n ** BigInt(dt)] }], "probe");
+      const [r] = await multicall(c, [{ address: a, abi: wrap, functionName: "convertToAssets", args: [10n ** BigInt(dt)] }], "sim");
       const du = await decimalsOf(under(asset)!);
       const p = await price(under(asset)!, true);
       if (r.status !== "success" || du === null || p === null) return null;
@@ -302,19 +311,26 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
   function price(t: string, inner = false): Promise<number | null> {
     const k = `${c.id}:${t.toLowerCase()}`;
     const hit = cache.get(k);
-    // a price for a minute; no price (no pool: spam, mostly) for an hour, so a big wallet's spam isn't looked up again
+    // a price for a minute; no price (no pool: spam, mostly) for a day, in the database too, so a big wallet's spam isn't looked up again
     // on every ask
-    if (hit && Date.now() - hit.at < (hit.none ? 3600_000 : t.toLowerCase() === wrapped ? 300_000 : 60_000)) return hit.p;
+    if (hit && Date.now() - hit.at < (hit.none ? DAY : t.toLowerCase() === wrapped ? 300_000 : 60_000)) return hit.p;
+    const lt = t.toLowerCase();
+    const was = !hit && unpriced?.get(lt);
+    if (was && Date.now() - was < DAY) {
+      const p = Promise.resolve(null);
+      cache.set(k, { at: was, p, none: true });
+      return p;
+    }
     // asked from inside another coin's price (its quote coin, what an aToken holds) skips the line: that one already
     // has a place, and waiting again could wait forever
     // 20 s at most (two vaults that point at each other would wait on each other for good)
     // too slow (a wallet with 10,000 coins asks for all their pools at once) or failed: no price this time, and not
     // kept, so the next ask tries again (kept, it hid mainnet ETH's price for an hour)
     const LATE = Symbol();
-    const timed = () => Promise.race([compute(t), new Promise<typeof LATE>(r => setTimeout(() => r(LATE), 60_000))]);
+    const timed = () => Promise.race([compute(t), new Promise<typeof LATE>(r => setTimeout(() => r(LATE), 300_000))]);
     const entry: { at: number; p: Promise<number | null>; none?: boolean } = { at: Date.now(), p: null as any };
     const forget = () => (cache.get(k) === entry && cache.delete(k), null);
-    entry.p = (inner ? timed() : slot(timed)).then(v => (v === LATE ? forget() : (v === null && (entry.none = true), v)), forget);
+    entry.p = (inner ? timed() : slot(timed)).then(v => (v === LATE ? forget() : (v === null && ((entry.none = true), inner || unpriced?.set(lt)), v)), forget);
     cache.set(k, entry);
     return entry.p;
   }

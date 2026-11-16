@@ -70,7 +70,8 @@ async function run(c: ChainCfg, quotes: string[]) {
       }
     }
     for (const f of w.done) f(out);
-  } catch (e) {
+  } catch (e: any) {
+    console.error(c.name, "v4 lookup failed for", ts.length, "coins:", String(e?.message || e).slice(0, 200));
     for (const f of w.fail) f(e);
   }
 }
