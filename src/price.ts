@@ -14,7 +14,8 @@ import { v4Pools } from "./v4.ts";
  *    real pool has no price (the wallet treats it as spam, as it does today). A v3 price is the pool's 30-minute
  *    average (observe), so one block can't fake it; a v2 price is its reserves now, from a pool traded in the last 30
  *    days.
- * 2. No pool: a coin that is a claim on another one is priced through it: an Aave aToken or debt token
+ * 2. No pool: a coin bridged from Ethereum by the network's official bridge is priced as the original there; a coin
+ *    that is a claim on another one is priced through it: an Aave aToken or debt token
  *    (UNDERLYING_ASSET_ADDRESS, 1:1), an ERC-4626 vault share (asset, convertToAssets), a Beefy vault (want,
  *    getPricePerFullShare).
  * Kept for a minute.
@@ -63,6 +64,24 @@ const ZERO = "0x0000000000000000000000000000000000000000";
 const STABLES = /^(USDT|USDT0|USD₮0|DAI)$/;
 
 const cache = new Map<string, { at: number; p: Promise<number | null>; none?: boolean }>();
+// each network's pricer, for a bridged coin priced as its Ethereum original
+const pricers = new Map<number, (t: string, inner?: boolean) => Promise<number | null>>();
+// a coin made by the network's official bridge names its Ethereum original. Only the bridge itself can mint it, so
+// that is checked: a spam coin can claim to be WETH, but not to be minted by the bridge
+const bridged = parseAbi([
+  "function REMOTE_TOKEN() view returns (address)",
+  "function BRIDGE() view returns (address)",
+  "function l1Address() view returns (address)",
+  "function l2Gateway() view returns (address)",
+  "function l1Token() view returns (address)",
+  "function l2Bridge() view returns (address)",
+]);
+const OP_BRIDGE = "0x4200000000000000000000000000000000000010"; // every OP Stack network (Optimism, Base...)
+const ARB_GATEWAYS = new Set([
+  "0x09e9222e96e7b4ae2a407b98d48e330053351eee", // the standard ERC-20 gateway
+  "0x096760f208390250649e3e8763348e783aef5562", // the custom gateway
+  "0x6c411ad3e74de3e7bd422b94a27770f5b86c623b", // WETH's
+]);
 // how many dollars the deepest pool holds, per coin priced from a pool (a holding worth more than that can't be sold
 // for it: spam with a small real pool, airdropped in the millions, priced 22 test wallets at $430k)
 const depths = new Map<string, number>();
@@ -216,13 +235,26 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
   /** A claim on another coin (aToken, vault share): its price through that coin. */
   async function through(t: string): Promise<number | null> {
     const a = t as `0x${string}`;
-    const [aave, asset, want, pps] = await multicall(c, [
+    const [aave, asset, want, pps, remote, bridge, l1, gw, oldRemote, oldBridge] = await multicall(c, [
       { address: a, abi: wrap, functionName: "UNDERLYING_ASSET_ADDRESS" },
       { address: a, abi: wrap, functionName: "asset" },
       { address: a, abi: wrap, functionName: "want" },
       { address: a, abi: wrap, functionName: "getPricePerFullShare" },
+      { address: a, abi: bridged, functionName: "REMOTE_TOKEN" },
+      { address: a, abi: bridged, functionName: "BRIDGE" },
+      { address: a, abi: bridged, functionName: "l1Address" },
+      { address: a, abi: bridged, functionName: "l2Gateway" },
+      { address: a, abi: bridged, functionName: "l1Token" }, // the older OP bridge token
+      { address: a, abi: bridged, functionName: "l2Bridge" },
     ], "probe");
     const under = (r: typeof aave) => (r.status === "success" && r.result !== ZERO ? String(r.result).toLowerCase() : null);
+    // bridged from Ethereum by the official bridge: the original's price (same decimals: the bridge keeps them)
+    const eth = pricers.get(1);
+    if (eth && c.id !== 1) {
+      if (under(remote) && under(bridge) === OP_BRIDGE) return eth(under(remote)!, true);
+      if (under(oldRemote) && under(oldBridge) === OP_BRIDGE) return eth(under(oldRemote)!, true);
+      if (under(l1) && ARB_GATEWAYS.has(under(gw) ?? "")) return eth(under(l1)!, true);
+    }
     if (under(aave)) return price(under(aave)!, true);
     const dt = await decimalsOf(t);
     if (dt === null) return null;
@@ -298,5 +330,6 @@ export function pricer(c: ChainCfg, decimalsOf: (t: string) => Promise<number | 
 
   /** The dollars in the coin's pool, or Infinity when its price doesn't come from one pool (USDC, an aToken...). */
   price.depth = (t: string) => depths.get(`${c.id}:${t.toLowerCase()}`) ?? Infinity;
+  pricers.set(c.id, price);
   return price;
 }

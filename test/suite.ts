@@ -4,15 +4,17 @@
 //   node test/suite.ts [indexer url] [reference url]     (defaults: http://127.0.0.1:4100, http://127.0.0.1:3000/api)
 //
 // 1. asks the indexer about every wallet (that starts its scan), 2. waits for the scans (WAIT_MIN, 30),
-// 3. compares. A coin the reference prices that the indexer misses, or a different balance, fails; a price more than
-// 5% off fails too, and so does a coin worth $10+ there that has no price here. Unpriced coins (spam, mostly) it misses are counted, not failed. Balances move while a trader
-// trades: a difference is asked again once before it counts.
+// 3. compares. A wallet fails on: a coin the reference prices that the indexer misses, a different balance, a price
+// more than 5% off, or a dollar total more than 5% off (TOTAL_PCT). A coin the reference prices and the indexer
+// can't (no live pool: a dead coin Alchemy still has an old price for) is counted, not failed: the total catches the
+// ones that matter. Balances move while a trader trades: a difference is asked again once before it counts.
 // One wallet at a time, PAUSE_MS (3000) apart: the indexer and the reference may share one node provider.
 // The table goes to the screen; every detail to test/results/<date>.json.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 const [ix = "http://127.0.0.1:4100", ref = "http://127.0.0.1:3000/api"] = process.argv.slice(2);
 const WAIT_MIN = Number(process.env.WAIT_MIN || 30);
+const TOTAL_PCT = Number(process.env.TOTAL_PCT || 5);
 const only = process.env.ONLY; // a label or address part: run just those
 const { wallets } = JSON.parse(readFileSync(new URL("./wallets.json", import.meta.url), "utf8")) as { wallets: { address: string; label: string }[] };
 const list = only ? wallets.filter(w => (w.label + w.address).toLowerCase().includes(only.toLowerCase())) : wallets;
@@ -85,8 +87,10 @@ async function compare(w: { address: string; label: string }) {
   try {
     let r = await once();
     if (r.diffs.some(d => d.kind === "balance" || d.kind === "missing")) r = await once(); // a trade in between
-    const fails = r.diffs.filter(d => d.kind === "missing" || d.kind === "balance" || d.kind === "price" || d.kind === "no-price");
-    return { ...w, ...r, fails: fails.length, ok: fails.length === 0 };
+    const fails = r.diffs.filter(d => d.kind === "missing" || d.kind === "balance" || d.kind === "price");
+    const off = r.usdTheirs > 1 ? Math.abs(r.usdMine / r.usdTheirs - 1) * 100 : 0;
+    const totalOff = off > TOTAL_PCT && Math.abs(r.usdMine - r.usdTheirs) > 10;
+    return { ...w, ...r, fails: fails.length + (totalOff ? 1 : 0), totalOff, ok: fails.length === 0 && !totalOff };
   } catch (e: any) {
     return { ...w, coins: 0, diffs: [], usdMine: 0, usdTheirs: 0, fails: 1, ok: false, error: String(e?.message || e) };
   }
@@ -96,11 +100,13 @@ const results = await pool(list, 1, w => compare(w).then(async r => (await rest(
 const n = (k: Diff["kind"]) => results.reduce((s, r) => s + r.diffs.filter(d => d.kind === k).length, 0);
 for (const r of results) {
   const pct = r.usdTheirs ? ((r.usdMine / r.usdTheirs - 1) * 100).toFixed(1) + "%" : "-";
-  const fl = r.diffs.filter(d => d.kind !== "missing-unpriced" && d.kind !== "extra").slice(0, 3).map(d => `${d.kind} ${d.symbol}@${d.chain}`).join(", ");
+  const order = ["missing", "balance", "price", "no-price"];
+  const fl = [...((r as any).totalOff ? ["total"] : []), ...r.diffs.filter(d => order.includes(d.kind)).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind)).slice(0, 3).map(d => `${d.kind} ${d.symbol}@${d.chain}`)].join(", ");
   console.log(`${r.ok ? "PASS" : "FAIL"} ${r.label.padEnd(26).slice(0, 26)} ${String(r.coins).padStart(4)} coins  $ ${pct.padStart(7)}  ${(r as any).error ?? fl}`);
 }
 const ok = results.filter(r => r.ok).length;
-console.log(`\n${ok}/${results.length} wallets pass. Coins compared ${results.reduce((s, r) => s + r.coins, 0)}: missing priced ${n("missing")}, balance ${n("balance")}, price ${n("price")}, no price (worth $10+) ${n("no-price")}, missing unpriced ${n("missing-unpriced")}, extra ${n("extra")}`);
+const totals = results.filter(r => (r as any).totalOff).length;
+console.log(`\n${ok}/${results.length} wallets pass. Total more than ${TOTAL_PCT}% off: ${totals}. Coins compared ${results.reduce((s, r) => s + r.coins, 0)}: missing priced ${n("missing")}, balance ${n("balance")}, price ${n("price")}, no price (worth $10+) ${n("no-price")}, missing unpriced ${n("missing-unpriced")}, extra ${n("extra")}`);
 mkdirSync(new URL("./results/", import.meta.url), { recursive: true });
 const file = new URL(`./results/${new Date().toISOString().slice(0, 16).replace(":", "")}.json`, import.meta.url);
 writeFileSync(file, JSON.stringify({ ix, ref, chains: [...chains], results }, null, 1));
