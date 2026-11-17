@@ -1,9 +1,10 @@
 import { createServer } from "node:http";
 import { isAddress } from "viem";
-import { chains } from "./chains.ts";
+import { NETWORKS, chains } from "./chains.ts";
 import { open } from "./db.ts";
 import { portfolio, type Asset } from "./portfolio.ts";
 import { scanner } from "./scan.ts";
+import { v4Sync } from "./v4.ts";
 
 /**
  * iw-indexer: a wallet's coins, prices and transfers from your own node. README.md says how to run it.
@@ -13,6 +14,7 @@ import { scanner } from "./scan.ts";
  *   GET /transfers?address=0x…&chain=8453[&in=1][&limit=50]   { complete, transfers }: ERC-20 moves, newest first, each
  *                                with its block's time (at) and the token's symbol and decimals; complete once the
  *                                scan has reached the wallet's first block
+ *   GET /node                    { networks, nodes: { chainId: url } }; POST /node { chain, url } sets one (checked, kept, restarts)
  *   GET /status                  each chain's wallets and how far back their scan has got
  */
 const PORT = Number(process.env.INDEXER_PORT || 4100);
@@ -26,12 +28,15 @@ process.on("unhandledRejection", e => console.error("unhandled:", String((e as a
 process.on("uncaughtException", e => console.error("uncaught:", String(e?.stack || e).slice(0, 600)));
 process.on("exit", code => console.error("exit", code));
 
-const cs = chains();
-if (!cs.length) {
-  console.error("No networks: set RPC_URL_<chainId>=<your node> (RPC_URL_1, RPC_URL_8453, ...). See README.md.");
-  process.exit(1);
-}
 const d = open(process.env.DB || "indexer.db");
+// the node set in Instant Wallet's Settings (POST /node) wins over RPC_URL_<chainId>; its log searches go to it too
+const env: Record<string, string | undefined> = { ...process.env };
+for (const n of d.q.nodes.all() as { chain: number; url: string }[]) {
+  if (env[`RPC_URL_${n.chain}`] !== n.url) delete env[`LOGS_URL_${n.chain}`];
+  env[`RPC_URL_${n.chain}`] = n.url;
+}
+const cs = chains(env);
+if (!cs.length) console.error("No networks yet: set one in Instant Wallet's Settings, or RPC_URL_<chainId>=<your node>. See README.md.");
 const per = cs.map(c => ({ c, scan: scanner(c, d, log), assets: portfolio(c, d) }));
 
 // the scan: new blocks every 12 s per chain; back in time in between, a step every half second at most
@@ -50,6 +55,16 @@ for (const p of per) {
     }
   })();
 }
+
+// every v4 pool, on a network read from your own node: caught up every 12 s
+for (const p of per)
+  if (p.c.v4 && p.c.own)
+    (async () => {
+      for (;;) {
+        await v4Sync(p.c, d).catch(e => console.error(p.c.name, "v4 pools:", String(e?.message || e).slice(0, 160)));
+        await sleep(12_000);
+      }
+    })();
 
 const watched = () => new Set((d.q.wallets.all() as any[]).map(r => r.wallet)).size;
 const json = (res: any, code: number, body: unknown) => {
@@ -122,6 +137,35 @@ createServer(async (req, res) => {
         return { ...r, at: times.get(Number(r.block)), symbol: t?.symbol ?? null, decimals: t?.decimals ?? null };
       });
       return json(res, 200, { complete, transfers });
+    }
+    if (u.pathname === "/node") {
+      // a key in the address (…/v2/<key>) never shown
+      if (req.method !== "POST") return json(res, 200, { networks: NETWORKS, nodes: Object.fromEntries(cs.map(c => [c.id, c.rpc.replace(/\/v2\/[^/?#]+/, "/v2/…")])) });
+      // JSON only: a web page can't send that here without asking first (and this answers no such ask), so no site
+      // you visit can point your indexer at its own node
+      if (!(req.headers["content-type"] || "").startsWith("application/json")) return json(res, 415, { error: "JSON only" });
+      // { chain, url }: this network reads from url (null: back to RPC_URL_<chainId>). Checked first, kept, then the
+      // indexer restarts on it (run-local.sh starts it again)
+      const b = await new Promise<any>(r => {
+        let t = "";
+        req.on("data", (x: Buffer) => (t += x));
+        req.on("end", () => r((() => { try { return JSON.parse(t); } catch { return {}; } })()));
+      });
+      const chain = Number(b.chain);
+      if (!Number.isInteger(chain) || chain <= 0) return json(res, 400, { error: "chain required" });
+      if (b.url) {
+        if (!/^https?:\/\/[^\s]+$/.test(b.url)) return json(res, 400, { error: "Not a node address (http://…)." });
+        const id = await fetch(b.url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }), signal: AbortSignal.timeout(5000) })
+          .then(r => r.json())
+          .then(j => Number(j.result))
+          .catch(() => null);
+        if (id === null) return json(res, 400, { error: "That node didn't answer." });
+        if (id !== chain) return json(res, 400, { error: `That node is on network ${id}, not ${chain}.` });
+        d.q.setNode.run(chain, b.url);
+      } else d.q.dropNode.run(chain);
+      json(res, 200, { ok: true, restarting: true });
+      setTimeout(() => process.exit(0), 200);
+      return;
     }
     if (u.pathname === "/status") {
       const rows = d.q.wallets.all() as any[];

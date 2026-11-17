@@ -12,7 +12,8 @@ Node 22.18 or newer.
     npm install
     RPC_URL_1=http://127.0.0.1:8545 RPC_URL_8453=http://127.0.0.1:8546 npm start
 
-One `RPC_URL_<chainId>` per network you want: your node for that network. It listens on http://127.0.0.1:4100.
+One `RPC_URL_<chainId>` per network you want: your node for that network. Or set it while running: `POST /node`
+(Instant Wallet's Settings → Balances and prices does). It listens on http://127.0.0.1:4100.
 
 | env | |
 |---|---|
@@ -24,7 +25,7 @@ One `RPC_URL_<chainId>` per network you want: your node for that network. It lis
 | `MIN_DEPTH_USD` | the least a pool must hold for its price to count (50000) |
 | `LOGS_URL_<chainId>` | where log searches go instead (history, v4 pools), for a node that can't search wide ranges (a light client: 512 blocks at a time) |
 | `RPC_BATCH` | reads per request at most (no limit; a node on this computer: 20, since a light client proves every read and refuses big batches) |
-| `RPC_RPS`, `RPC_CONCURRENCY` | how hard it may ask your node: requests a second (5) and at once (4) per network. Gentle by default (5 and 4), for a hosted node with limits; a node on this computer (127.0.0.1, localhost) gets 50 and 8 |
+| `RPC_RPS`, `RPC_CONCURRENCY` | how hard it may ask your node: requests a second (5) and at once (4) per network. Gentle by default (5 and 4), for a hosted node with limits; a node on this computer or your home network (127.0.0.1, localhost, 192.168.x, 10.x, 172.16–31.x, *.local) gets 50 and 8 |
 | `VERBOSE`, `DEBUG_RPC`, `DEBUG_FLUSH` | log the scan; every request to the node (size, time); every merged read |
 
 Instant Wallet: set `INDEXER_URL=http://127.0.0.1:4100` (its `run-local.sh` does it).
@@ -34,6 +35,9 @@ Instant Wallet: set `INDEXER_URL=http://127.0.0.1:4100` (its `run-local.sh` does
 - `GET /portfolio?address=0x…`: `{ totalUsd, assets: [{ chainId, asset, symbol, name, decimals, balance, formatted,
   price, usd }], late? }`, on every network. Asking starts watching that wallet.
 - `GET /transfers?address=0x…&chain=8453[&in=1][&limit=50]`: `{ complete, transfers }`, its ERC-20 moves, newest first, each with its time and the token's symbol and decimals. `complete` once the scan has gone back to the wallet's first block. Instant Wallet's Activity uses it then.
+- `GET /node`: the networks it knows and the node it reads each from. `POST /node {chain, url}` (JSON): checks the node
+  answers as that network, keeps it (it wins over `RPC_URL_<chainId>`), and exits to start again on it (run it in a loop;
+  Instant Wallet's run-local.sh does). `url: null` drops it.
 - `GET /status`: each wallet, and how far back its scan has got.
 
 ## How
@@ -52,7 +56,9 @@ Instant Wallet: set `INDEXER_URL=http://127.0.0.1:4100` (its `run-local.sh` does
   priced as the original. USDC counts as $1.
 - **Gentle on the node:** reads merge into a few large Multicall3 calls, at a set pace (`RPC_RPS`). A wallet with
   300 coins: about 90 requests the first time, 8 after. A spam token that burns its call's gas can't take real
-  coins down with it: token reads are asked again in small groups.
+  coins down with it: token reads are asked again in small groups. On a network read from your own node, every v4
+  pool is kept once (Ethereum on a home reth: 200k pools, 3 minutes) and a coin's v4 pools are a database lookup.
+  A node's log search limit ("max block range 10000") is learned once and kept to.
 
 ## Next (once the test suite runs clean)
 

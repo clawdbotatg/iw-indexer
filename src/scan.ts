@@ -1,5 +1,5 @@
 import { toEventSelector } from "viem";
-import type { ChainCfg } from "./chains.ts";
+import { type ChainCfg, learnSpan } from "./chains.ts";
 import type { Db } from "./db.ts";
 
 /**
@@ -52,13 +52,15 @@ export function scanner(c: ChainCfg, d: Db, log = (..._: unknown[]) => {}) {
   const spans = new Map<string, bigint>();
   let turn = 0;
 
+
   /** One step back in time for one wallet not done yet, each in turn (a slow one doesn't hold up the rest).
    * false: nothing left to do. */
   async function back(): Promise<boolean> {
     const rows = (d.q.wallets.all() as any[]).filter(r => r.chain === c.id && BigInt(r.low) > c.fromBlock);
     if (!rows.length) return false;
     const r = rows[turn++ % rows.length];
-    const span = spans.get(r.wallet) ?? 100_000n;
+    const want = spans.get(r.wallet) ?? 100_000n;
+    const span = c.span !== undefined && want > c.span ? c.span : want;
     const to = BigInt(r.low) - 1n;
     const from = to - span + 1n > c.fromBlock ? to - span + 1n : c.fromBlock;
     try {
@@ -69,7 +71,9 @@ export function scanner(c: ChainCfg, d: Db, log = (..._: unknown[]) => {}) {
       log(c.name, r.wallet.slice(0, 8), "back to", from, got.length, "logs");
     } catch (e: any) {
       const why = String(e?.shortMessage || e?.message || e).slice(0, 80);
-      if (span > 1n) {
+      if (learnSpan(c, e)) {
+        // asked again next turn, within what the node takes
+      } else if (span > 1n) {
         spans.set(r.wallet, span > 4n ? span / 4n : 1n); // the node refused (too many results, too big): smaller
         log(c.name, r.wallet.slice(0, 8), "smaller range", span, why);
       } else {
@@ -88,8 +92,9 @@ export function scanner(c: ChainCfg, d: Db, log = (..._: unknown[]) => {}) {
     const h = await head();
     const from = BigInt(Math.min(...rows.map(r => r.head))) - OVERLAP;
     if (h <= from) return;
-    for (let a = from; a <= h; a += 2000n) {
-      const b = a + 1999n < h ? a + 1999n : h;
+    const step = c.span !== undefined && c.span < 2000n ? c.span : 2000n;
+    for (let a = from; a <= h; a += step) {
+      const b = a + step - 1n < h ? a + step - 1n : h;
       keep(await logs(a, b, rows.map(r => r.wallet)), new Set(rows.map(r => r.wallet)));
     }
     for (const r of rows) d.q.setHead.run(Number(h), c.id, r.wallet);

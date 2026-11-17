@@ -25,6 +25,8 @@ export type ChainCfg = {
   client: PublicClient;
   logs: PublicClient; // where log searches go: LOGS_URL_<chainId> if set (a light client answers 512 blocks at a time), else the node
   fromBlock: bigint; // the oldest block a scan goes back to (FROM_BLOCK_<chainId>, else 0)
+  own: boolean; // log searches go to your own node (this computer, your home network): no cost to search a lot
+  span?: bigint; // the most blocks one log search may cover, once the node has said ("max block range 10000")
   batch: number; // reads per request at most (RPC_BATCH; a node on this computer: 20, a light client proves each one; else no limit)
 };
 
@@ -79,25 +81,42 @@ function node(url: string, limit: number, rps: number) {
   };
 }
 
+/** A node's "max block range 10000": kept on the chain (every log search after keeps to it). True when learned. */
+export function learnSpan(c: ChainCfg, e: unknown): boolean {
+  const m = /block range (?:of |is |limit |exceeded |)?(\d{3,})|range (\d{3,}) block/i.exec(String((e as any)?.message || e));
+  if (!m) return false;
+  const n = BigInt(m[1] ?? m[2]);
+  if (c.span !== undefined && c.span <= n) return false;
+  c.span = n;
+  console.log(`${c.name}: the node takes ${n} blocks a log search`);
+  return true;
+}
+
 export const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 
-const all = JSON.parse(readFileSync(new URL("../data/chains.json", import.meta.url), "utf8")) as Record<string, Omit<ChainCfg, "id" | "rpc" | "client" | "logs" | "fromBlock" | "batch">>;
+const all = JSON.parse(readFileSync(new URL("../data/chains.json", import.meta.url), "utf8")) as Record<string, Omit<ChainCfg, "id" | "rpc" | "client" | "logs" | "fromBlock" | "batch" | "own">>;
+
+/** Every network this indexer knows (data/chains.json): each needs a node to be read. */
+export const NETWORKS = Object.keys(all).map(Number);
 
 export function chains(env = process.env): ChainCfg[] {
   const out: ChainCfg[] = [];
   for (const [id, c] of Object.entries(all)) {
     const rpc = env[`RPC_URL_${id}`];
     if (!rpc) continue;
-    // a node on this computer has no rate limit to keep to: 50 a second, 8 at once (RPC_RPS, RPC_CONCURRENCY set both)
-    const mine = (u: string) => /^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(u);
+    // a node on this computer or your home network has no rate limit to keep to: 50 a second, 8 at once (RPC_RPS,
+    // RPC_CONCURRENCY set both)
+    const mine = (u: string) => /^https?:\/\/(127\.0\.0\.1|localhost|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|[\w-]+\.local)[:/]/.test(u);
+    // only one on this computer is held to 20 reads a request: a light client proves each one
+    const here = (u: string) => /^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(u);
     const make = (u: string) =>
       createPublicClient({
         transport: custom({ request: node(u, Number(env.RPC_CONCURRENCY || (mine(u) ? 8 : 4)), Number(env.RPC_RPS || (mine(u) ? 50 : 5))) }, { retryCount: 0 }),
       }) as PublicClient;
     const client = make(rpc);
     const logsUrl = env[`LOGS_URL_${id}`];
-    const batch = Number(env.RPC_BATCH || (mine(rpc) ? 20 : 0)) || Infinity;
-    out.push({ ...c, id: Number(id), rpc, client, logs: logsUrl ? make(logsUrl) : client, fromBlock: BigInt(env[`FROM_BLOCK_${id}`] || 0), batch });
+    const batch = Number(env.RPC_BATCH || (here(rpc) ? 20 : 0)) || Infinity;
+    out.push({ ...c, id: Number(id), rpc, client, logs: logsUrl ? make(logsUrl) : client, own: mine(logsUrl || rpc), fromBlock: BigInt(env[`FROM_BLOCK_${id}`] || 0), batch });
   }
   return out;
 }
