@@ -90,18 +90,35 @@ createServer(async (req, res) => {
       const complete = !!w && BigInt(w.low) <= p.c.fromBlock;
       // each move with its block's time (asked once, kept) and its token's symbol and decimals
       const times = new Map<number, number>();
+      const ask: number[] = [];
+      for (const b of new Set(rows.map(r => Number(r.block)))) {
+        const ts = (d.q.blockTs.get(chain, b) as any)?.ts;
+        if (ts == null) ask.push(b);
+        else times.set(b, ts);
+      }
+      // the rest in batches (RPC_BATCH a request; one by one, 500 took over a minute)
+      const step = Number.isFinite(p.c.batch) ? p.c.batch : 100;
       await Promise.all(
-        [...new Set(rows.map(r => Number(r.block)))].map(async b => {
-          let ts = (d.q.blockTs.get(chain, b) as any)?.ts;
-          if (ts == null) {
-            ts = Number((await p.c.client.getBlock({ blockNumber: BigInt(b) })).timestamp);
+        Array.from({ length: Math.ceil(ask.length / step) }, (_, i) => ask.slice(i * step, (i + 1) * step)).map(async bs => {
+          const r = await fetch(p.c.rpc, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(bs.map((b, id) => ({ jsonrpc: "2.0", id, method: "eth_getBlockByNumber", params: ["0x" + b.toString(16), false] }))),
+          }).then(r => r.json());
+          for (const x of Array.isArray(r) ? r : []) {
+            const b = bs[x.id];
+            if (b === undefined || !x.result?.timestamp) continue;
+            const ts = Number(x.result.timestamp);
             d.q.setBlockTs.run(chain, b, ts);
+            times.set(b, ts);
           }
-          times.set(b, ts);
         }),
       );
+      // a block the node didn't answer: an error, never a list with a move missing
+      if (rows.some(r => !times.has(Number(r.block)))) return json(res, 503, { error: "the node didn't give every block's time; ask again" });
+      const metas = await p.assets.metas([...new Set(rows.map(r => r.token as string))]).catch(() => new Map());
       const transfers = rows.map(r => {
-        const t = d.q.token.get(chain, r.token) as any;
+        const t = metas.get(r.token);
         return { ...r, at: times.get(Number(r.block)), symbol: t?.symbol ?? null, decimals: t?.decimals ?? null };
       });
       return json(res, 200, { complete, transfers });

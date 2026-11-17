@@ -69,11 +69,12 @@ export function portfolio(c: ChainCfg, d: Db) {
 
   // one read per wallet at a time: asking again while it runs gets the same answer
   const running = new Map<string, Promise<Asset[]>>();
-  return function assets(wallet: string): Promise<Asset[]> {
+  // metas: the transfer list's tokens, named the same way
+  return Object.assign(function assets(wallet: string): Promise<Asset[]> {
     const k = wallet.toLowerCase();
     if (!running.has(k)) running.set(k, read(wallet).finally(() => running.delete(k)));
     return running.get(k)!;
-  };
+  }, { metas });
 
   async function read(wallet: string): Promise<Asset[]> {
     const w = getAddress(wallet);
