@@ -33,7 +33,7 @@ Instant Wallet: set `INDEXER_URL=http://127.0.0.1:4100` (its `run-local.sh` does
 
 - `GET /portfolio?address=0x…`: `{ totalUsd, assets: [{ chainId, asset, symbol, name, decimals, balance, formatted,
   price, usd }], late? }`, on every network. Asking starts watching that wallet.
-- `GET /transfers?address=0x…&chain=8453[&in=1][&limit=50]`: its ERC-20 moves, newest first.
+- `GET /transfers?address=0x…&chain=8453[&in=1][&limit=50]`: `{ complete, transfers }`, its ERC-20 moves, newest first, each with its time and the token's symbol and decimals. `complete` once the scan has gone back to the wallet's first block. Instant Wallet's Activity uses it then.
 - `GET /status`: each wallet, and how far back its scan has got.
 
 ## How

@@ -10,7 +10,9 @@ import { scanner } from "./scan.ts";
  *
  *   GET /portfolio?address=0x…   every chain: { totalUsd, assets: Asset[], late?: chainId[] } (Instant Wallet's shape).
  *                                The first ask starts watching that wallet (MAX_WALLETS, default 100).
- *   GET /transfers?address=0x…&chain=8453[&in=1][&limit=50]   ERC-20 moves, newest first
+ *   GET /transfers?address=0x…&chain=8453[&in=1][&limit=50]   { complete, transfers }: ERC-20 moves, newest first, each
+ *                                with its block's time (at) and the token's symbol and decimals; complete once the
+ *                                scan has reached the wallet's first block
  *   GET /status                  each chain's wallets and how far back their scan has got
  */
 const PORT = Number(process.env.INDEXER_PORT || 4100);
@@ -80,9 +82,29 @@ createServer(async (req, res) => {
       const a = (u.searchParams.get("address") || "").toLowerCase();
       const chain = Number(u.searchParams.get("chain"));
       const limit = Math.min(Number(u.searchParams.get("limit") || 50), 500);
-      if (!isAddress(a) || !per.some(p => p.c.id === chain)) return json(res, 400, { error: "address and chain required" });
-      const rows = u.searchParams.get("in") ? d.q.movesIn.all(chain, a, limit) : d.q.movesAll.all(chain, a, a, limit);
-      return json(res, 200, { transfers: rows });
+      const p = per.find(p => p.c.id === chain);
+      if (!isAddress(a) || !p) return json(res, 400, { error: "address and chain required" });
+      const rows = (u.searchParams.get("in") ? d.q.movesIn.all(chain, a, limit) : d.q.movesAll.all(chain, a, a, limit)) as any[];
+      // complete: the scan has reached the wallet's first block, so this is its whole history
+      const w = d.q.wallet.get(chain, a) as any;
+      const complete = !!w && BigInt(w.low) <= p.c.fromBlock;
+      // each move with its block's time (asked once, kept) and its token's symbol and decimals
+      const times = new Map<number, number>();
+      await Promise.all(
+        [...new Set(rows.map(r => Number(r.block)))].map(async b => {
+          let ts = (d.q.blockTs.get(chain, b) as any)?.ts;
+          if (ts == null) {
+            ts = Number((await p.c.client.getBlock({ blockNumber: BigInt(b) })).timestamp);
+            d.q.setBlockTs.run(chain, b, ts);
+          }
+          times.set(b, ts);
+        }),
+      );
+      const transfers = rows.map(r => {
+        const t = d.q.token.get(chain, r.token) as any;
+        return { ...r, at: times.get(Number(r.block)), symbol: t?.symbol ?? null, decimals: t?.decimals ?? null };
+      });
+      return json(res, 200, { complete, transfers });
     }
     if (u.pathname === "/status") {
       const rows = d.q.wallets.all() as any[];

@@ -21,6 +21,7 @@ export function open(path: string) {
     CREATE INDEX IF NOT EXISTS transfers_src ON transfers (chain, src, block);
     CREATE TABLE IF NOT EXISTS tokens (chain INTEGER, token TEXT, symbol TEXT, name TEXT, decimals INTEGER, PRIMARY KEY (chain, token));
     CREATE TABLE IF NOT EXISTS unpriced (chain INTEGER, token TEXT, at INTEGER, PRIMARY KEY (chain, token));
+    CREATE TABLE IF NOT EXISTS blocks (chain INTEGER, block INTEGER, ts INTEGER, PRIMARY KEY (chain, block));
   `);
   db.exec("DELETE FROM tokens WHERE decimals IS NULL"); // 0.1 kept a failed read as "not a token" for good
   const q = {
@@ -37,6 +38,8 @@ export function open(path: string) {
     token: db.prepare("SELECT * FROM tokens WHERE chain = ? AND token = ?"),
     unpriced: db.prepare("SELECT at FROM unpriced WHERE chain = ? AND token = ?"),
     setUnpriced: db.prepare("INSERT OR REPLACE INTO unpriced (chain, token, at) VALUES (?, ?, ?)"),
+    blockTs: db.prepare("SELECT ts FROM blocks WHERE chain = ? AND block = ?"),
+    setBlockTs: db.prepare("INSERT OR REPLACE INTO blocks (chain, block, ts) VALUES (?, ?, ?)"),
     addToken: db.prepare("INSERT OR REPLACE INTO tokens (chain, token, symbol, name, decimals) VALUES (?, ?, ?, ?, ?)"),
   };
   return { db, q };
