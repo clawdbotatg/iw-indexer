@@ -10,6 +10,8 @@ import { DatabaseSync } from "node:sqlite";
  *   v4pools    every Uniswap v4 pool (its Initialize event), on a network read from your own node; v4sync: up to which block
  *   ethscan    on an archive node of your own: the blocks searched for a wallet's ETH moves (low..high); ethmoves:
  *              the moves found, per block where its balance or send count changed
+ *   nftmoves   every NFT move (ERC-721, ERC-1155) to or from a watched wallet; nftmeta: each NFT's name and image,
+ *              read once; nfttx: who sent the transaction that brought one in, and to how many wallets (an airdrop)
  *   unpriced   coins with no price when last looked up, and when (spam, mostly: looked up again after a day)
  */
 export type Db = ReturnType<typeof open>;
@@ -32,9 +34,18 @@ export function open(path: string) {
     CREATE TABLE IF NOT EXISTS v4sync (chain INTEGER PRIMARY KEY, upto INTEGER);
     CREATE TABLE IF NOT EXISTS ethscan (chain INTEGER, wallet TEXT, low INTEGER, high INTEGER, PRIMARY KEY (chain, wallet));
     CREATE TABLE IF NOT EXISTS ethmoves (chain INTEGER, wallet TEXT, block INTEGER, moves TEXT, PRIMARY KEY (chain, wallet, block));
+    CREATE TABLE IF NOT EXISTS nftmoves (chain INTEGER, block INTEGER, tx TEXT, idx INTEGER, sub INTEGER, contract TEXT, src TEXT, dst TEXT, id TEXT, amount TEXT, kind INTEGER, PRIMARY KEY (chain, tx, idx, sub));
+    CREATE INDEX IF NOT EXISTS nftmoves_dst ON nftmoves (chain, dst, block);
+    CREATE INDEX IF NOT EXISTS nftmoves_src ON nftmoves (chain, src, block);
+    CREATE TABLE IF NOT EXISTS nftmeta (chain INTEGER, contract TEXT, id TEXT, name TEXT, collection TEXT, image TEXT, at INTEGER, PRIMARY KEY (chain, contract, id));
+    CREATE TABLE IF NOT EXISTS nfttx (chain INTEGER, tx TEXT, sender TEXT, recipients INTEGER, PRIMARY KEY (chain, tx));
     CREATE TABLE IF NOT EXISTS blocks (chain INTEGER, block INTEGER, ts INTEGER, PRIMARY KEY (chain, block));
   `);
-  db.exec("DELETE FROM tokens WHERE decimals IS NULL"); // 0.1 kept a failed read as "not a token" for good
+  db.exec("DELETE FROM tokens WHERE decimals IS NULL");
+  // 0.2 kept no NFT moves: each wallet's history is read again (its coin moves are kept once, so nothing doubles)
+  if (Number((db.prepare("PRAGMA user_version").get() as any).user_version) < 1) {
+    db.exec("UPDATE wallets SET low = head; PRAGMA user_version = 1");
+  } // 0.1 kept a failed read as "not a token" for good
   const q = {
     wallet: db.prepare("SELECT * FROM wallets WHERE chain = ? AND wallet = ?"),
     wallets: db.prepare("SELECT * FROM wallets"),
@@ -60,6 +71,12 @@ export function open(path: string) {
     setEthscan: db.prepare("INSERT OR REPLACE INTO ethscan (chain, wallet, low, high) VALUES (?, ?, ?, ?)"),
     addEthmoves: db.prepare("INSERT OR REPLACE INTO ethmoves (chain, wallet, block, moves) VALUES (?, ?, ?, ?)"),
     ethmoves: db.prepare("SELECT * FROM ethmoves WHERE chain = ? AND wallet = ? ORDER BY block DESC"),
+    nftMove: db.prepare("INSERT OR IGNORE INTO nftmoves (chain, block, tx, idx, sub, contract, src, dst, id, amount, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+    nftMoves: db.prepare("SELECT * FROM nftmoves WHERE chain = ? AND (dst = ? OR src = ?) ORDER BY block, idx, sub"),
+    nftMeta: db.prepare("SELECT * FROM nftmeta WHERE chain = ? AND contract = ? AND id = ?"),
+    setNftMeta: db.prepare("INSERT OR REPLACE INTO nftmeta (chain, contract, id, name, collection, image, at) VALUES (?, ?, ?, ?, ?, ?, ?)"),
+    nftTx: db.prepare("SELECT * FROM nfttx WHERE chain = ? AND tx = ?"),
+    setNftTx: db.prepare("INSERT OR REPLACE INTO nfttx (chain, tx, sender, recipients) VALUES (?, ?, ?, ?)"),
     blockTs: db.prepare("SELECT ts FROM blocks WHERE chain = ? AND block = ?"),
     setBlockTs: db.prepare("INSERT OR REPLACE INTO blocks (chain, block, ts) VALUES (?, ?, ?)"),
     addToken: db.prepare("INSERT OR REPLACE INTO tokens (chain, token, symbol, name, decimals) VALUES (?, ?, ?, ?, ?)"),

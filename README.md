@@ -35,6 +35,10 @@ Instant Wallet: set `INDEXER_URL=http://127.0.0.1:4100` (its `run-local.sh` does
 - `GET /portfolio?address=0x…`: `{ totalUsd, assets: [{ chainId, asset, symbol, name, decimals, balance, formatted,
   price, usd }], late? }`, on every network. Asking starts watching that wallet.
 - `GET /transfers?address=0x…&chain=8453[&in=1][&limit=50]`: `{ complete, transfers }`, its ERC-20 moves, newest first, each with its time and the token's symbol and decimals. `complete` once the scan has gone back to the wallet's first block. Instant Wallet's Activity uses it then.
+- `GET /nfts?address=0x…&chain=1`: `{ complete, nfts }`, the NFTs it holds, once its history is read: every NFT
+  that came in (ERC-721, ERC-1155 logs), still its own (`ownerOf`, `balanceOf`), not an airdrop (someone else's
+  transaction to 5+ wallets), with a name and image (`tokenURI` / `uri`, ENS names from ENS's metadata service).
+  IPFS through `IPFS_GATEWAY` (default filebase). Checked: 690 of the 780 Alchemy shows for a test wallet.
 - `GET /eth?address=0x…&chain=1&dir=in|out[&limit=50]`: `{ moves, unresolved }`, its ETH moves, newest first. Only
   from an archive node of your own: its balance and send count read at past blocks, narrowed to each block where
   they changed (`src/eth.ts`). Checked against Alchemy on two wallets: the same moves.

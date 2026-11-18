@@ -1,9 +1,10 @@
-import { toEventSelector } from "viem";
+import { decodeAbiParameters, toEventSelector } from "viem";
 import { type ChainCfg, learnSpan } from "./chains.ts";
 import type { Db } from "./db.ts";
 
 /**
- * Reads every ERC-20 Transfer to or from the watched wallets, from your node's logs.
+ * Reads every ERC-20 Transfer to or from the watched wallets, from your node's logs, and every NFT move (ERC-721
+ * Transfer, ERC-1155 TransferSingle / TransferBatch) for src/nft.ts.
  *   back:    from where the wallet was added, back in time to the chain's fromBlock, newest first (recent coins show
  *            up first), one wallet at a time, in ranges that grow while the node keeps up and shrink when it refuses.
  *   forward: every new block, all wallets of a chain in one query each way (in, out). 12 blocks are read again each
@@ -11,6 +12,8 @@ import type { Db } from "./db.ts";
  * Balances are never added up from these: /portfolio reads balanceOf live. The logs only say which coins to ask about.
  */
 export const TRANSFER = toEventSelector("Transfer(address,address,uint256)");
+const SINGLE = toEventSelector("TransferSingle(address,address,address,uint256,uint256)");
+const BATCH = toEventSelector("TransferBatch(address,address,address,uint256[],uint256[])");
 const pad = (a: string) => "0x" + a.toLowerCase().slice(2).padStart(64, "0");
 const unpad = (t: string) => "0x" + t.slice(26).toLowerCase();
 const OVERLAP = 12n;
@@ -23,21 +26,47 @@ export function scanner(c: ChainCfg, d: Db, log = (..._: unknown[]) => {}) {
 
   const keep = (logs: Log[], wallets: Set<string>) => {
     for (const l of logs) {
-      if (l.topics.length !== 3) continue; // 4 topics: an NFT (ERC-721), later
-      const src = unpad(l.topics[1]), dst = unpad(l.topics[2]), token = l.address.toLowerCase();
+      const at = [c.id, Number(BigInt(l.blockNumber)), l.transactionHash, Number(BigInt(l.logIndex))] as const;
+      const token = l.address.toLowerCase();
+      if (l.topics[0] === TRANSFER && l.topics.length === 4) {
+        // ERC-721: the token id is the third topic
+        d.q.nftMove.run(...at, 0, token, unpad(l.topics[1]), unpad(l.topics[2]), BigInt(l.topics[3]).toString(), "1", 721);
+        continue;
+      }
+      if (l.topics[0] === SINGLE || l.topics[0] === BATCH) {
+        const src = unpad(l.topics[2]), dst = unpad(l.topics[3]);
+        try {
+          const [ids, vals] =
+            l.topics[0] === SINGLE
+              ? decodeAbiParameters([{ type: "uint256" }, { type: "uint256" }], l.data as `0x${string}`).map(x => [x as bigint])
+              : (decodeAbiParameters([{ type: "uint256[]" }, { type: "uint256[]" }], l.data as `0x${string}`) as unknown as bigint[][]);
+          ids.forEach((id, i) => d.q.nftMove.run(...at, i, token, src, dst, id.toString(), (vals[i] ?? 0n).toString(), 1155));
+        } catch {} // not what the standard says: not an NFT move
+        continue;
+      }
+      if (l.topics.length !== 3) continue;
+      const src = unpad(l.topics[1]), dst = unpad(l.topics[2]);
       for (const w of [src, dst]) if (wallets.has(w)) d.q.see.run(c.id, w, token);
       d.q.move.run(c.id, Number(BigInt(l.blockNumber)), l.transactionHash, Number(BigInt(l.logIndex)), token, src, dst, BigInt(l.data === "0x" ? 0 : l.data).toString());
     }
   };
   const getLogs = <T>(params: unknown[]) => c.logs.request({ method: "eth_getLogs" as any, params: params as any }) as Promise<T>;
-  const logs = async (from: bigint, to: bigint, ws: string[]) => {
+  const logs = async (from: bigint, to: bigint, ws: string[]): Promise<Log[]> => {
+    // wider than the node takes in one search: in pieces it does, all at once (the node's pace holds them)
+    if (c.span !== undefined && to - from + 1n > c.span) {
+      const parts: Promise<Log[]>[] = [];
+      for (let a = from; a <= to; a += c.span) parts.push(logs(a, a + c.span - 1n < to ? a + c.span - 1n : to, ws));
+      return (await Promise.all(parts)).flat();
+    }
     const t = ws.map(pad);
     const range = { fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16) };
-    const [out, inn] = await Promise.all([
+    const [out, inn, out1155, in1155] = await Promise.all([
       getLogs<Log[]>([{ ...range, topics: [TRANSFER, t] }]),
       getLogs<Log[]>([{ ...range, topics: [TRANSFER, null, t] }]),
+      getLogs<Log[]>([{ ...range, topics: [[SINGLE, BATCH], null, t] }]),
+      getLogs<Log[]>([{ ...range, topics: [[SINGLE, BATCH], null, null, t] }]),
     ]);
-    return [...out, ...inn];
+    return [...out, ...inn, ...out1155, ...in1155];
   };
 
   /** Start watching a wallet here (no-op if it already is). */
@@ -60,7 +89,8 @@ export function scanner(c: ChainCfg, d: Db, log = (..._: unknown[]) => {}) {
     if (!rows.length) return false;
     const r = rows[turn++ % rows.length];
     const want = spans.get(r.wallet) ?? 100_000n;
-    const span = c.span !== undefined && want > c.span ? c.span : want;
+    // your own node: 8 of its searches a step, side by side; else what the node is known to take
+    const span = c.span === undefined ? want : c.own ? c.span * 8n : want > c.span ? c.span : want;
     const to = BigInt(r.low) - 1n;
     const from = to - span + 1n > c.fromBlock ? to - span + 1n : c.fromBlock;
     try {
