@@ -5,6 +5,7 @@ import { open } from "./db.ts";
 import { portfolio, type Asset } from "./portfolio.ts";
 import { scanner } from "./scan.ts";
 import { v4Sync } from "./v4.ts";
+import { ethHistory } from "./eth.ts";
 
 /**
  * iw-indexer: a wallet's coins, prices and transfers from your own node. README.md says how to run it.
@@ -14,6 +15,8 @@ import { v4Sync } from "./v4.ts";
  *   GET /transfers?address=0x…&chain=8453[&in=1][&limit=50]   { complete, transfers }: ERC-20 moves, newest first, each
  *                                with its block's time (at) and the token's symbol and decimals; complete once the
  *                                scan has reached the wallet's first block
+ *   GET /eth?address=0x…&chain=1&dir=in|out[&limit=50]   { moves, unresolved }: its ETH moves, newest first (an
+ *                                archive node of your own only: src/eth.ts)
  *   GET /node                    { networks, nodes: { chainId: url } }; POST /node { chain, url } sets one (checked, kept, restarts)
  *   GET /status                  each chain's wallets and how far back their scan has got
  */
@@ -37,7 +40,7 @@ for (const n of d.q.nodes.all() as { chain: number; url: string }[]) {
 }
 const cs = chains(env);
 if (!cs.length) console.error("No networks yet: set one in Instant Wallet's Settings, or RPC_URL_<chainId>=<your node>. See README.md.");
-const per = cs.map(c => ({ c, scan: scanner(c, d, log), assets: portfolio(c, d) }));
+const per = cs.map(c => ({ c, scan: scanner(c, d, log), assets: portfolio(c, d), eth: ethHistory(c, d) }));
 
 // the scan: new blocks every 12 s per chain; back in time in between, a step every half second at most
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -137,6 +140,18 @@ createServer(async (req, res) => {
         return { ...r, at: times.get(Number(r.block)), symbol: t?.symbol ?? null, decimals: t?.decimals ?? null };
       });
       return json(res, 200, { complete, transfers });
+    }
+    if (u.pathname === "/eth") {
+      // a wallet's ETH moves (src/eth.ts): an archive node of your own only (else 501: ask elsewhere)
+      const a = (u.searchParams.get("address") || "").toLowerCase();
+      const p = per.find(p => p.c.id === Number(u.searchParams.get("chain")));
+      const dir = u.searchParams.get("dir") === "out" ? "out" : "in";
+      const limit = Math.min(Number(u.searchParams.get("limit") || 50), 500);
+      if (!isAddress(a) || !p) return json(res, 400, { error: "address and chain required" });
+      if (!p.c.own) return json(res, 501, { error: "only from a node of your own" });
+      const r = await p.eth.moves(a, dir, limit);
+      if (!r) return json(res, 501, { error: "not an archive node" });
+      return json(res, 200, { complete: true, ...r });
     }
     if (u.pathname === "/node") {
       // a key in the address (…/v2/<key>) never shown

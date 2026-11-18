@@ -8,6 +8,8 @@ import { DatabaseSync } from "node:sqlite";
  *   tokens     a token's name, symbol and decimals, read once from the chain
  *   nodes      the node per network set from Instant Wallet's Settings (POST /node): wins over RPC_URL_<chainId>
  *   v4pools    every Uniswap v4 pool (its Initialize event), on a network read from your own node; v4sync: up to which block
+ *   ethscan    on an archive node of your own: the blocks searched for a wallet's ETH moves (low..high); ethmoves:
+ *              the moves found, per block where its balance or send count changed
  *   unpriced   coins with no price when last looked up, and when (spam, mostly: looked up again after a day)
  */
 export type Db = ReturnType<typeof open>;
@@ -28,6 +30,8 @@ export function open(path: string) {
     CREATE INDEX IF NOT EXISTS v4pools_c0 ON v4pools (chain, c0);
     CREATE INDEX IF NOT EXISTS v4pools_c1 ON v4pools (chain, c1);
     CREATE TABLE IF NOT EXISTS v4sync (chain INTEGER PRIMARY KEY, upto INTEGER);
+    CREATE TABLE IF NOT EXISTS ethscan (chain INTEGER, wallet TEXT, low INTEGER, high INTEGER, PRIMARY KEY (chain, wallet));
+    CREATE TABLE IF NOT EXISTS ethmoves (chain INTEGER, wallet TEXT, block INTEGER, moves TEXT, PRIMARY KEY (chain, wallet, block));
     CREATE TABLE IF NOT EXISTS blocks (chain INTEGER, block INTEGER, ts INTEGER, PRIMARY KEY (chain, block));
   `);
   db.exec("DELETE FROM tokens WHERE decimals IS NULL"); // 0.1 kept a failed read as "not a token" for good
@@ -52,6 +56,10 @@ export function open(path: string) {
     setV4upto: db.prepare("INSERT OR REPLACE INTO v4sync (chain, upto) VALUES (?, ?)"),
     addV4: db.prepare("INSERT OR IGNORE INTO v4pools (chain, id, c0, c1, fee, spacing, hooks) VALUES (?, ?, ?, ?, ?, ?, ?)"),
     v4of: db.prepare("SELECT * FROM v4pools WHERE chain = ? AND (c0 = ? OR c1 = ?)"),
+    ethscan: db.prepare("SELECT * FROM ethscan WHERE chain = ? AND wallet = ?"),
+    setEthscan: db.prepare("INSERT OR REPLACE INTO ethscan (chain, wallet, low, high) VALUES (?, ?, ?, ?)"),
+    addEthmoves: db.prepare("INSERT OR REPLACE INTO ethmoves (chain, wallet, block, moves) VALUES (?, ?, ?, ?)"),
+    ethmoves: db.prepare("SELECT * FROM ethmoves WHERE chain = ? AND wallet = ? ORDER BY block DESC"),
     blockTs: db.prepare("SELECT ts FROM blocks WHERE chain = ? AND block = ?"),
     setBlockTs: db.prepare("INSERT OR REPLACE INTO blocks (chain, block, ts) VALUES (?, ?, ?)"),
     addToken: db.prepare("INSERT OR REPLACE INTO tokens (chain, token, symbol, name, decimals) VALUES (?, ?, ?, ?, ?)"),

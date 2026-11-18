@@ -35,6 +35,9 @@ Instant Wallet: set `INDEXER_URL=http://127.0.0.1:4100` (its `run-local.sh` does
 - `GET /portfolio?address=0x…`: `{ totalUsd, assets: [{ chainId, asset, symbol, name, decimals, balance, formatted,
   price, usd }], late? }`, on every network. Asking starts watching that wallet.
 - `GET /transfers?address=0x…&chain=8453[&in=1][&limit=50]`: `{ complete, transfers }`, its ERC-20 moves, newest first, each with its time and the token's symbol and decimals. `complete` once the scan has gone back to the wallet's first block. Instant Wallet's Activity uses it then.
+- `GET /eth?address=0x…&chain=1&dir=in|out[&limit=50]`: `{ moves, unresolved }`, its ETH moves, newest first. Only
+  from an archive node of your own: its balance and send count read at past blocks, narrowed to each block where
+  they changed (`src/eth.ts`). Checked against Alchemy on two wallets: the same moves.
 - `GET /node`: the networks it knows and the node it reads each from. `POST /node {chain, url}` (JSON): checks the node
   answers as that network, keeps it (it wins over `RPC_URL_<chainId>`), and exits to start again on it (run it in a loop;
   Instant Wallet's run-local.sh does). `url: null` drops it.

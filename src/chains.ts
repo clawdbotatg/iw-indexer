@@ -81,6 +81,33 @@ function node(url: string, limit: number, rps: number) {
   };
 }
 
+/** Many reads in JSON-RPC batches (RPC_BATCH a request, else 200), all asked at once; the answers in order. A read
+ * the node refused throws (a list with a hole would be read as "nothing there"). */
+export async function batchRpc(c: ChainCfg, calls: { method: string; params: unknown[] }[]): Promise<any[]> {
+  const step = Number.isFinite(c.batch) ? c.batch : 200;
+  const parts: (typeof calls)[] = [];
+  for (let i = 0; i < calls.length; i += step) parts.push(calls.slice(i, i + step));
+  const got = await Promise.all(
+    parts.map(async part => {
+      const r = await fetch(c.rpc, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(part.map((x, id) => ({ jsonrpc: "2.0", id, ...x }))),
+        signal: AbortSignal.timeout(60_000),
+      }).then(r => r.json());
+      if (!Array.isArray(r)) throw new Error(`batch: ${String(r?.error?.message || "not a batch answer").slice(0, 120)}`);
+      const out = new Array(part.length);
+      for (const x of r) {
+        if (x.error || x.result === undefined) throw new Error(`${part[x.id]?.method}: ${String(x.error?.message || "no answer").slice(0, 120)}`);
+        out[x.id] = x.result;
+      }
+      if (out.some(x => x === undefined)) throw new Error("batch: an answer is missing");
+      return out;
+    }),
+  );
+  return got.flat();
+}
+
 /** A node's "max block range 10000": kept on the chain (every log search after keeps to it). True when learned. */
 export function learnSpan(c: ChainCfg, e: unknown): boolean {
   const m = /block range (?:of |is |limit |exceeded |)?(\d{3,})|range (\d{3,}) block/i.exec(String((e as any)?.message || e));
