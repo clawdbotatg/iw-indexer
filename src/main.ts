@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { isAddress } from "viem";
 import { NETWORKS, chains } from "./chains.ts";
 import { open } from "./db.ts";
@@ -16,6 +18,7 @@ import { type Nft, nfts } from "./nft.ts";
  *   GET /transfers?address=0x…&chain=8453[&in=1][&limit=50]   { complete, transfers }: ERC-20 moves, newest first, each
  *                                with its block's time (at) and the token's symbol and decimals; complete once the
  *                                scan has reached the wallet's first block
+ *   GET /meta?chain=1&token=0x…  { symbol, name, decimals }
  *   GET /nfts?address=0x…&chain=1   { complete, nfts, progress }: the NFTs it holds (src/nft.ts), once its scan is
  *                                done and each NFT's name and picture read (progress: how far, 0 to 1, until then)
  *   GET /eth?address=0x…&chain=1&dir=in|out[&limit=50]   { moves, unresolved }: its ETH moves, newest first (an
@@ -35,6 +38,24 @@ process.on("uncaughtException", e => console.error("uncaught:", String(e?.stack 
 process.on("exit", code => console.error("exit", code));
 
 const d = open(process.env.DB || "indexer.db");
+
+// Instant Wallet's Settings → No external traffic: a file beside this database ({ nodes: { chainId: url } }). While
+// it's there, every fetch to anywhere but this computer, your home network or your nodes is refused (no Alchemy, no
+// IPFS gateway: an NFT whose picture isn't kept yet shows when it's off again)
+const noExt = join(dirname(resolve(process.env.DB || "indexer.db")), "no-external.json");
+const realFetch = globalThis.fetch;
+globalThis.fetch = (async (input: any, init?: any) => {
+  let on: { nodes?: Record<string, string> } | null = null;
+  try {
+    on = JSON.parse(readFileSync(noExt, "utf8"));
+  } catch {}
+  if (on) {
+    const host = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    const home = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$)/.test(host) || /\.(local|onion)$/.test(host) || Object.values(on.nodes ?? {}).some(u => URL.canParse(u) && new URL(u).hostname.toLowerCase() === host);
+    if (!home) throw new TypeError(`No external traffic: ${host}`);
+  }
+  return realFetch(input, init);
+}) as typeof fetch;
 // the node set in Instant Wallet's Settings (POST /node) wins over RPC_URL_<chainId>; its log searches go to it too
 const env: Record<string, string | undefined> = { ...process.env };
 for (const n of d.q.nodes.all() as { chain: number; url: string }[]) {
@@ -192,6 +213,14 @@ createServer(async (req, res) => {
       if (!j.v && j.run) await Promise.race([j.run, sleep(3_000)]);
       if (!j.v) return json(res, 200, { complete: false, progress: 0.8 + 0.2 * j.f, nfts: [] });
       return json(res, 200, { complete: true, nfts: j.v });
+    }
+    if (u.pathname === "/meta") {
+      // a coin's name, symbol and decimals, read from the node (kept)
+      const t = (u.searchParams.get("token") || "").toLowerCase();
+      const p = per.find(p => p.c.id === Number(u.searchParams.get("chain")));
+      if (!isAddress(t) || !p) return json(res, 400, { error: "token and chain required" });
+      const m = (await p.assets.metas([t]).catch(() => new Map())).get(t);
+      return m ? json(res, 200, m) : json(res, 404, { error: "not a coin" });
     }
     if (u.pathname === "/eth") {
       // a wallet's ETH moves (src/eth.ts): an archive node of your own only (else 501: ask elsewhere)
