@@ -79,7 +79,7 @@ export function nfts(c: ChainCfg, d: Db) {
   }
 
   /** Name, collection and image of these NFTs: kept, or read now. */
-  async function metas(items: { contract: string; id: string; kind: number }[]) {
+  async function metas(items: { contract: string; id: string; kind: number }[], tick: (f: number) => void) {
     const ask = items.filter(x => {
       const m = d.q.nftMeta.get(c.id, x.contract, x.id) as any;
       return !m || (!m.image && Date.now() - m.at > DAY);
@@ -124,12 +124,14 @@ export function nfts(c: ChainCfg, d: Db) {
             }
           }
           d.q.setNftMeta.run(c.id, x.contract, x.id, name, collection, image.length > 500_000 ? "" : image, Date.now());
+          tick(next / ask.length);
         }
       }),
     );
   }
 
-  return async function held(wallet: string): Promise<Nft[]> {
+  /** tick: how far along, 0 to 1 (the first time, reading every NFT's name and picture is most of it). */
+  return async function held(wallet: string, tick: (f: number) => void = () => {}): Promise<Nft[]> {
     const w = wallet.toLowerCase();
     const moves = d.q.nftMoves.all(c.id, w, w) as any[];
     // per NFT: the last move that brought it in, and what the moves add up to (1155: how many)
@@ -162,12 +164,14 @@ export function nfts(c: ChainCfg, d: Db) {
       })
       .filter(x => x !== null);
     // airdrops: brought in by someone else's transaction to many wallets
+    tick(0.05);
     await txs([...new Set(mine.map(x => x.lastIn))]);
+    tick(0.15);
     const kept = mine.filter(x => {
       const t = d.q.nftTx.get(c.id, x.lastIn) as any;
       return !t || t.sender === w || t.recipients < AIRDROP;
     });
-    await metas(kept);
+    await metas(kept, f => tick(0.15 + 0.85 * f));
     const out: Nft[] = [];
     for (const x of kept) {
       const m = d.q.nftMeta.get(c.id, x.contract, x.id) as any;

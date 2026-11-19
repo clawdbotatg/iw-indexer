@@ -6,7 +6,7 @@ import { portfolio, type Asset } from "./portfolio.ts";
 import { scanner } from "./scan.ts";
 import { v4Sync } from "./v4.ts";
 import { ethHistory } from "./eth.ts";
-import { nfts } from "./nft.ts";
+import { type Nft, nfts } from "./nft.ts";
 
 /**
  * iw-indexer: a wallet's coins, prices and transfers from your own node. README.md says how to run it.
@@ -16,7 +16,8 @@ import { nfts } from "./nft.ts";
  *   GET /transfers?address=0x…&chain=8453[&in=1][&limit=50]   { complete, transfers }: ERC-20 moves, newest first, each
  *                                with its block's time (at) and the token's symbol and decimals; complete once the
  *                                scan has reached the wallet's first block
- *   GET /nfts?address=0x…&chain=1   { complete, nfts }: the NFTs it holds (src/nft.ts), once its scan is done
+ *   GET /nfts?address=0x…&chain=1   { complete, nfts, progress }: the NFTs it holds (src/nft.ts), once its scan is
+ *                                done and each NFT's name and picture read (progress: how far, 0 to 1, until then)
  *   GET /eth?address=0x…&chain=1&dir=in|out[&limit=50]   { moves, unresolved }: its ETH moves, newest first (an
  *                                archive node of your own only: src/eth.ts)
  *   GET /node                    { networks, nodes: { chainId: url } }; POST /node { chain, url } sets one (checked, kept, restarts)
@@ -71,6 +72,37 @@ for (const p of per)
         await sleep(12_000);
       }
     })();
+
+// each wallet's NFTs, worked out in the background and kept a minute: the first time takes a while (its whole history
+// scanned, then every NFT's name and picture read), so it starts as soon as the scan is done, not when it's asked for
+type Job = { at: number; v: Nft[] | null; f: number; run: Promise<void> | null };
+const nftJobs = new Map<string, Job>();
+const scanned = (p: (typeof per)[number], w: any) => !!w && BigInt(w.low) <= p.c.fromBlock;
+function nftJob(p: (typeof per)[number], a: string): Job {
+  const k = `${p.c.id}:${a}`;
+  let j = nftJobs.get(k);
+  if (!j) nftJobs.set(k, (j = { at: 0, v: null, f: 0, run: null }));
+  if (!j.run && Date.now() - j.at > 60_000) {
+    const job = j;
+    job.run = p
+      .nfts(a, f => (job.f = f))
+      .then(v => {
+        job.v = v;
+        job.at = Date.now();
+      })
+      .catch(e => void log(p.c.name, "nfts:", String(e?.message || e).slice(0, 120)))
+      .finally(() => {
+        job.run = null;
+      });
+  }
+  return j;
+}
+setInterval(() => {
+  for (const w of d.q.wallets.all() as any[]) {
+    const p = per.find(p => p.c.id === w.chain);
+    if (p && scanned(p, w) && !nftJobs.get(`${p.c.id}:${w.wallet}`)?.v) nftJob(p, w.wallet);
+  }
+}, 15_000);
 
 const watched = () => new Set((d.q.wallets.all() as any[]).map(r => r.wallet)).size;
 const json = (res: any, code: number, body: unknown) => {
@@ -145,14 +177,21 @@ createServer(async (req, res) => {
       return json(res, 200, { complete, transfers });
     }
     if (u.pathname === "/nfts") {
-      // a wallet's NFTs (src/nft.ts); complete once its scan has reached its first block
+      // a wallet's NFTs (src/nft.ts); complete once its scan has reached its first block and its NFTs are worked out
       const a = (u.searchParams.get("address") || "").toLowerCase();
       const p = per.find(p => p.c.id === Number(u.searchParams.get("chain")));
       if (!isAddress(a) || !p) return json(res, 400, { error: "address and chain required" });
       const w = d.q.wallet.get(p.c.id, a) as any;
       if (!w) p.scan.watch(a).catch(e => log(p.c.name, "watch:", e?.message));
-      const complete = !!w && BigInt(w.low) <= p.c.fromBlock;
-      return json(res, 200, { complete, nfts: complete ? await p.nfts(a) : [] });
+      // the scan is most of the wait (back from today to the network's first block), then the names and pictures
+      if (!scanned(p, w)) {
+        const f = w ? Number(BigInt(w.top) - BigInt(w.low)) / Math.max(1, Number(BigInt(w.top) - p.c.fromBlock)) : 0;
+        return json(res, 200, { complete: false, progress: 0.8 * f, nfts: [] });
+      }
+      const j = nftJob(p, a);
+      if (!j.v && j.run) await Promise.race([j.run, sleep(3_000)]);
+      if (!j.v) return json(res, 200, { complete: false, progress: 0.8 + 0.2 * j.f, nfts: [] });
+      return json(res, 200, { complete: true, nfts: j.v });
     }
     if (u.pathname === "/eth") {
       // a wallet's ETH moves (src/eth.ts): an archive node of your own only (else 501: ask elsewhere)
